@@ -25,7 +25,7 @@ export interface ProjectDetail extends Project {
     clips: { count: number; minDurationSeconds: number; maxDurationSeconds: number; minEntertainmentScore: number };
     render: { compositionMode: 'blur' | 'crop' | 'smart'; width: number; height: number; fps: number };
     analysis: { gameTitle: string };
-    text: { introText: string; endingText: string; aiCaptions: boolean; subtitles: boolean; spokenLanguage: string; subtitleLanguages: string[]; hindiScript: 'devanagari' | 'roman' };
+    text: { introText: string; endingText: string; aiCaptions: boolean; subtitles: boolean; spokenLanguage: string; subtitleLanguages: string[]; hindiScript: 'devanagari' | 'roman'; subtitleMode: 'separate' | 'stacked' };
     audio: { normalize: boolean; volume: number; backgroundMusicPath: string };
   };
 }
@@ -127,9 +127,10 @@ export const api = {
 };
 
 export const urls = {
-  clipVideo: (id: string, clipId: string, v?: string) => `/api/projects/${id}/clips/${clipId}/video${v ? `?v=${encodeURIComponent(v)}` : ''}`,
+  clipVideo: (id: string, clipId: string, v?: string, lang?: string | null) =>
+    `/api/projects/${id}/clips/${clipId}/video?${new URLSearchParams({ ...(v ? { v } : {}), ...(lang ? { lang } : {}) }).toString()}`,
   clipThumb: (id: string, clipId: string, v?: string) => `/api/projects/${id}/clips/${clipId}/thumbnail${v ? `?v=${encodeURIComponent(v)}` : ''}`,
-  clipDownload: (id: string, clipId: string) => `/api/projects/${id}/clips/${clipId}/download`,
+  clipDownload: (id: string, clipId: string, lang?: string | null) => `/api/projects/${id}/clips/${clipId}/download${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`,
   clipSubtitles: (id: string, clipId: string, lang: string) => `/api/projects/${id}/clips/${clipId}/subtitles/${lang}`,
   frame: (id: string, t: number) => `/api/projects/${id}/frame?t=${t.toFixed(1)}`,
   preview: (id: string, cid: string, start: number, end: number) => `/api/projects/${id}/candidates/${cid}/preview?s=${start}&e=${end}`,

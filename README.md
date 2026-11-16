@@ -121,7 +121,22 @@ Optional intro and ending text, plus an optional AI title caption (`text.aiCapti
 
 ## Subtitles (English, Hindi and more)
 
-Speech is transcribed **locally** with whisper.cpp; nothing is uploaded. Lines that aren't already in a target language are translated with your Claude CLI, keeping whisper's timing. Each clip gets the subtitles burned in (two languages stacked, e.g. Hindi above English) and `.srt` caption files (`clip-001.hi.srt`, `clip-001.en.srt`) for uploading as platform captions.
+Speech is transcribed **locally** with whisper.cpp; nothing is uploaded. Lines that aren't already in a target language are translated with your Claude CLI, keeping whisper's timing. Transcription and translation run once per clip.
+
+**Subtitle reels** (Settings → Subtitles, or `text.subtitleLanguages` + `text.subtitleMode`):
+
+| Option | Config | Output per clip |
+|---|---|---|
+| Hindi + English | `["hi","en"]`, `separate` | `clip-001-hi.mp4` and `clip-001-en.mp4`, two reels |
+| English only | `["en"]` | `clip-001-en.mp4` |
+| Hindi only | `["hi"]` | `clip-001-hi.mp4` |
+| Both in one reel | `["hi","en"]`, `stacked` | `clip-001.mp4` (Hindi on top, English below) |
+| As spoken | `["original"]` | `clip-001-<lang>.mp4`, no translation |
+
+- Every reel is validated before any reel of that clip replaces the previous output.
+- Each clip also gets `.srt` caption files (`clip-001.hi.srt`, `clip-001.en.srt`) for uploading as platform captions.
+- A clip with no detected speech gets a single `clip-001.mp4` without subtitles.
+- The UI has per-language tabs and downloads, and the zip and folder exports include every reel.
 
 Setup (macOS):
 

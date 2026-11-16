@@ -127,3 +127,21 @@ describe('short-utterance language correction', () => {
     expect(dominantLanguage([{ start: 0, end: 1 }], [{ language: 'hi', segments: seg }], null)).toBeNull();
   });
 });
+
+import { planVariants } from '../../src/render/renderClip.js';
+describe('reel variants', () => {
+  const hi = { lang: 'hi', segments: [{ start: 0, end: 1, text: 'भाई' }], translated: true };
+  const en = { lang: 'en', segments: [{ start: 0, end: 1, text: 'bro' }], translated: false };
+  it('renders one reel per language in separate mode', () => {
+    expect(planVariants([hi, en], 'separate').map((v) => [v.lang, v.tracks.map((t) => t.lang)])).toEqual([['hi', ['hi']], ['en', ['en']]]);
+  });
+  it('renders a single reel for one language', () => {
+    expect(planVariants([en], 'separate').map((v) => v.lang)).toEqual(['en']);
+  });
+  it('stacks all languages into one reel in stacked mode', () => {
+    expect(planVariants([hi, en], 'stacked')).toEqual([{ lang: 'hi+en', tracks: [hi, en] }]);
+  });
+  it('renders one plain reel when there is no speech', () => {
+    expect(planVariants([], 'separate')).toEqual([{ lang: null, tracks: [] }]);
+  });
+});

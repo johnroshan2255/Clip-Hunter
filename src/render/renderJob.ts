@@ -176,7 +176,8 @@ export async function runRenderJob(o: {
             await setClip(id, {
               status: 'completed',
               progress: 1,
-              file: paths.rel(outFile),
+              file: paths.rel(r.primaryFile),
+              variants: r.variants.map((v) => ({ lang: v.lang, file: paths.rel(v.file), sizeBytes: v.validation.sizeBytes })),
               thumbnail: (await exists(thumb)) ? paths.rel(thumb) : undefined,
               validation: r.validation,
               compositionUsed: r.compositionUsed,

@@ -145,6 +145,11 @@ const textSchema = z
      * any other ISO code (e.g. "hi", "en") is translated with the Claude CLI when it differs from the speech.
      */
     subtitleLanguages: z.array(z.string().regex(/^(original|[a-z]{2,3})$/)).min(1).max(2).default(['original']),
+    /**
+     * "separate" = one reel per subtitle language (clip-001-hi.mp4, clip-001-en.mp4);
+     * "stacked" = one reel showing all chosen languages (first on top).
+     */
+    subtitleMode: z.enum(['separate', 'stacked']).default('separate'),
     /** Script for Hindi subtitles: Devanagari (हिंदी) or romanised Hinglish. */
     hindiScript: z.enum(['devanagari', 'roman']).default('devanagari'),
     /** Also write .srt caption files next to each clip (for uploading as platform captions). */
@@ -299,6 +304,7 @@ export const projectSettingsSchema = z
         spokenLanguage: z.string().regex(/^(auto|[a-z]{2,3}(\+[a-z]{2,3})*)$/),
         subtitleLanguages: z.array(z.string().regex(/^(original|[a-z]{2,3})$/)).min(1).max(2),
         hindiScript: z.enum(['devanagari', 'roman']),
+        subtitleMode: z.enum(['separate', 'stacked']),
       })
       .partial(),
   })

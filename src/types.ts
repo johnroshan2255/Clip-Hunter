@@ -271,6 +271,8 @@ export interface ClipRecord {
   spokenLanguage?: string;
   /** Exported caption files (paths relative to project dir). */
   subtitleFiles?: Array<{ lang: string; file: string }>;
+  /** Language reels (paths relative to project dir). `lang` null = no subtitles; "hi+en" = stacked. */
+  variants?: Array<{ lang: string | null; file: string; sizeBytes: number }>;
   /** Hash of everything that affects the output; unchanged key = reuse completed render. */
   renderKey?: string;
   warnings?: string[];

@@ -22,12 +22,16 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
   const [spoken, setSpoken] = useState(e.text.spokenLanguage);
   const [subLangs, setSubLangs] = useState<string[]>(e.text.subtitleLanguages);
   const [hindiScript, setHindiScript] = useState(e.text.hindiScript);
-  const toggleLang = (l: string) =>
-    setSubLangs((cur) => {
-      if (cur.includes(l)) return cur.length > 1 ? cur.filter((x) => x !== l) : cur;
-      const next = [...cur.filter((x) => x !== 'original'), l];
-      return next.slice(-2);
-    });
+  const [subMode, setSubMode] = useState(e.text.subtitleMode);
+  // Reel presets: what most people want, mapped onto languages + mode.
+  const preset = subLangs.length === 2 && subLangs.includes('hi') && subLangs.includes('en') ? (subMode === 'stacked' ? 'stacked' : 'both') : subLangs.length === 1 && subLangs[0] === 'en' ? 'en' : subLangs.length === 1 && subLangs[0] === 'hi' ? 'hi' : subLangs.length === 1 && subLangs[0] === 'original' ? 'original' : 'custom';
+  const applyPreset = (p: string) => {
+    if (p === 'both') { setSubLangs(['hi', 'en']); setSubMode('separate'); }
+    if (p === 'en') { setSubLangs(['en']); setSubMode('separate'); }
+    if (p === 'hi') { setSubLangs(['hi']); setSubMode('separate'); }
+    if (p === 'stacked') { setSubLangs(['hi', 'en']); setSubMode('stacked'); }
+    if (p === 'original') { setSubLangs(['original']); setSubMode('separate'); }
+  };
 
   const save = async () => {
     try {
@@ -37,7 +41,7 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
           clips: { count, minDurationSeconds: minDur, maxDurationSeconds: maxDur, minEntertainmentScore: minScore },
           render: { compositionMode: mode, fps },
           audio: { normalize, volume, backgroundMusicPath: music },
-          text: { introText: intro, endingText: ending, aiCaptions: captions, subtitles: subs, spokenLanguage: spoken, subtitleLanguages: subLangs, hindiScript },
+          text: { introText: intro, endingText: ending, aiCaptions: captions, subtitles: subs, spokenLanguage: spoken, subtitleLanguages: subLangs, hindiScript, subtitleMode: subMode },
         },
       });
       toast('Settings saved. Changes to clip count/score apply on “Re-run selection”; render settings apply to the next render.', 'ok');
@@ -98,11 +102,18 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
           </select>
         </label>
         <div className="lang-pick">
-          <span className="small muted">Subtitle languages (max 2, shown top → bottom)</span>
-          <div className="seg">
-            {[['hi', 'Hindi'], ['en', 'English'], ['original', 'As spoken']].map(([code, label]) => (
-              <button key={code} type="button" disabled={!subs} className={subLangs.includes(code!) ? 'active' : ''} onClick={() => (code === 'original' ? setSubLangs(['original']) : toggleLang(code!))}>
-                {subLangs.includes(code!) ? `${subLangs.indexOf(code!) + 1}. ` : ''}{label}
+          <span className="small muted">Subtitle reels</span>
+          <div className="reel-options">
+            {[
+              ['both', 'Hindi + English', '2 separate reels per clip'],
+              ['en', 'English only', '1 reel with English subtitles'],
+              ['hi', 'Hindi only', '1 reel with Hindi subtitles'],
+              ['stacked', 'Both in one reel', 'Hindi on top, English below'],
+              ['original', 'As spoken', 'no translation'],
+            ].map(([key, label, hint]) => (
+              <button key={key} type="button" disabled={!subs} className={`reel-option ${preset === key ? 'active' : ''}`} onClick={() => applyPreset(key!)}>
+                <b>{label}</b>
+                <span>{hint}</span>
               </button>
             ))}
           </div>

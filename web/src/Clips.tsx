@@ -2,15 +2,21 @@ import { useState } from 'react';
 import { api, fmtBytes, fmtTime, urls, type ClipRecord, type ProjectDetail } from './api';
 import { Modal, ProgressBar, ScoreBadge, StatusPill, toast, toastError } from './ui';
 
+const LANG_LABEL: Record<string, string> = { hi: 'Hindi', en: 'English', orig: 'Original', 'hi+en': 'Hindi + English', 'en+hi': 'English + Hindi' };
+const langLabel = (l: string | null) => (l ? LANG_LABEL[l] ?? l.toUpperCase() : 'No subtitles');
+
 function ClipCard({ c, project, onChanged, busy }: { c: ClipRecord; project: ProjectDetail; onChanged: () => void; busy: boolean }) {
   const [info, setInfo] = useState(false);
+  const reels = c.variants?.length ? c.variants : null;
+  const [reelIdx, setReelIdx] = useState(0);
+  const reel = reels?.[Math.min(reelIdx, reels.length - 1)] ?? null;
   const v = c.renderedAt ?? '';
   const done = c.status === 'completed' && c.file;
   return (
     <div className={`card clip-card ${c.status}`}>
       <div className="clip-media">
         {done ? (
-          <video src={urls.clipVideo(project.id, c.id, v)} poster={c.thumbnail ? urls.clipThumb(project.id, c.id, v) : undefined} controls preload="none" playsInline />
+          <video key={reel?.file ?? 'main'} src={urls.clipVideo(project.id, c.id, v, reel?.lang)} poster={c.thumbnail ? urls.clipThumb(project.id, c.id, v) : undefined} controls preload="none" playsInline />
         ) : (
           <div className="clip-placeholder">
             <StatusPill status={c.status} />
@@ -24,12 +30,28 @@ function ClipCard({ c, project, onChanged, busy }: { c: ClipRecord; project: Pro
           <b>{c.id}</b> <ScoreBadge score={c.score} />
         </div>
         <div className="clip-title">{c.title}</div>
+        {done && reels && reels.length > 1 && (
+          <div className="seg reel-tabs">
+            {reels.map((r, i) => (
+              <button key={r.file} className={i === reelIdx ? 'active' : ''} onClick={() => setReelIdx(i)}>
+                {langLabel(r.lang)}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="small muted">
           {fmtTime(c.start, true)} → {fmtTime(c.end, true)} · {(c.end - c.start).toFixed(1)}s · {c.category.replace(/_/g, ' ')}
         </div>
         {c.warnings?.length ? <div className="small warn-text">{c.warnings[0]}</div> : null}
         <div className="row-actions">
-          {done && <a className="btn small" href={urls.clipDownload(project.id, c.id)}>Download</a>}
+          {done &&
+            (reels && reels.some((r) => r.lang)
+              ? reels.map((r) => (
+                  <a key={r.file} className="btn small" href={urls.clipDownload(project.id, c.id, r.lang)} title={`Download the ${langLabel(r.lang)} reel`}>
+                    ⬇ {r.lang ? langLabel(r.lang) : 'Reel'}
+                  </a>
+                ))
+              : <a className="btn small" href={urls.clipDownload(project.id, c.id)}>Download</a>)}
           {done &&
             c.subtitleFiles?.map((f) => (
               <a key={f.lang} className="btn small" href={urls.clipSubtitles(project.id, c.id, f.lang)} title={`Download ${f.lang} captions (.srt)`}>

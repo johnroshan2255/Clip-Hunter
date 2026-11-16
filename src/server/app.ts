@@ -362,17 +362,26 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
   }));
 
   // ── Clips ──
-  const clipFile = (id: string, clipId: string, kind: 'file' | 'thumbnail') => {
+  const clipFile = (id: string, clipId: string, kind: 'file' | 'thumbnail', lang?: unknown) => {
     const p = svc.store.get(id);
     const c = p.clips.find((x) => x.id === clipId);
     if (!c) throw new NotFoundError('Clip not found');
-    const rel = c[kind];
+    let rel = c[kind];
+    if (kind === 'file' && typeof lang === 'string' && lang) {
+      const v = c.variants?.find((x) => x.lang === lang);
+      if (!v) throw new NotFoundError(`No ${lang} reel for this clip`);
+      rel = v.file;
+    }
     if (!rel) throw new NotFoundError(`Clip ${kind} not available`);
     return { abs: svc.store.paths(id).abs(rel), clip: c, project: p };
   };
 
+  /** Every reel of a clip (all languages), falling back to the main file. */
+  const allReels = (c: { file?: string; variants?: Array<{ lang: string | null; file: string }> }) =>
+    c.variants?.length ? c.variants : c.file ? [{ lang: null, file: c.file }] : [];
+
   api.get('/projects/:id/clips/:clipId/video', h(async (req, res) => {
-    const { abs } = clipFile(idParam(req), idParam(req, 'clipId'), 'file');
+    const { abs } = clipFile(idParam(req), idParam(req, 'clipId'), 'file', req.query.lang);
     res.sendFile(abs);
   }));
 
@@ -382,8 +391,9 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
   }));
 
   api.get('/projects/:id/clips/:clipId/download', h(async (req, res) => {
-    const { abs, clip, project } = clipFile(idParam(req), idParam(req, 'clipId'), 'file');
-    res.download(abs, `${project.id}-${clip.id}.mp4`);
+    const { abs, clip, project } = clipFile(idParam(req), idParam(req, 'clipId'), 'file', req.query.lang);
+    res.download(abs, `${project.id}-${path.basename(abs)}`);
+    void clip;
   }));
 
   api.get('/projects/:id/clips/:clipId/subtitles/:lang', h(async (req, res) => {
@@ -403,7 +413,7 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
     if (!c) throw new NotFoundError('Clip not found');
     if (c.status === 'rendering' || c.status === 'validating') throw new ValidationError('Clip is currently rendering');
     const paths = svc.store.paths(id);
-    for (const rel of [c.file, c.thumbnail, ...(c.subtitleFiles ?? []).map((f) => f.file)]) if (rel) await fsp.rm(paths.abs(rel), { force: true });
+    for (const rel of [c.file, c.thumbnail, ...allReels(c).map((v) => v.file), ...(c.subtitleFiles ?? []).map((f) => f.file)]) if (rel) await fsp.rm(paths.abs(rel), { force: true });
     // Deselect the moment so the next render does not recreate it.
     const list = await readJsonOr<Candidate[]>(paths.candidatesFile, []);
     const cand = list.find((x) => x.id === c.candidateId);
@@ -434,7 +444,7 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
     zip.on('error', (err) => res.destroy(err));
     zip.pipe(res);
     for (const c of clips) {
-      zip.file(paths.abs(c.file!), { name: `${c.id}.mp4` });
+      for (const v of allReels(c)) zip.file(paths.abs(v.file), { name: path.basename(v.file) });
       for (const sub of c.subtitleFiles ?? []) zip.file(paths.abs(sub.file), { name: `${c.id}.${sub.lang}.srt` });
     }
     zip.append(JSON.stringify(clips.map((c) => ({ id: c.id, title: c.title, category: c.category, start: c.start, end: c.end, score: c.score })), null, 2), { name: 'clips.json' });
@@ -451,8 +461,15 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
     if (!clips.length) throw new NotFoundError('No completed clips to export');
     const dir = path.join(svc.cfg.storage.exportsDir, p.id);
     await ensureDir(dir);
-    for (const c of clips) await fsp.copyFile(paths.abs(c.file!), path.join(dir, `${c.id}.mp4`));
-    res.json({ ok: true, directory: dir, count: clips.length });
+    let files = 0;
+    for (const c of clips) {
+      for (const v of allReels(c)) {
+        await fsp.copyFile(paths.abs(v.file), path.join(dir, path.basename(v.file)));
+        files++;
+      }
+      for (const sub of c.subtitleFiles ?? []) await fsp.copyFile(paths.abs(sub.file), path.join(dir, path.basename(sub.file)));
+    }
+    res.json({ ok: true, directory: dir, count: clips.length, files });
   }));
 
   api.get('/projects/:id/logs', h(async (req, res) => {
