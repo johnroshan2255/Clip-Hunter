@@ -14,6 +14,26 @@ import { killAllProcesses } from './util/process.js';
 import { formatTimestamp } from './util/time.js';
 import type { Job } from './jobs/queue.js';
 import type { ProjectSettings } from './config/schema.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { APP_ROOT, LOCAL_CONFIG_FILE } from './config/load.js';
+import { generatePassword, hashPassword } from './server/auth.js';
+import { writeJsonAtomicSync } from './util/fsx.js';
+
+/** Update server.* keys in the git-ignored local config file. */
+function updateLocalServerConfig(patch: Record<string, unknown>): string {
+  const file = path.join(APP_ROOT, LOCAL_CONFIG_FILE);
+  let cur: Record<string, unknown> = {};
+  try {
+    cur = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+  } catch {
+    /* new file */
+  }
+  const server = { ...((cur.server as Record<string, unknown>) ?? {}), ...patch };
+  for (const [k, v] of Object.entries(server)) if (v === undefined) delete server[k];
+  writeJsonAtomicSync(file, { ...cur, server });
+  return file;
+}
 
 function parseArgs(argv: string[]): { cmd: string; positional: string[]; flags: Record<string, string | boolean> } {
   const [cmd = 'help', ...rest] = argv;
@@ -114,6 +134,22 @@ async function main(): Promise<void> {
       process.exit(good ? 0 : 1);
       break;
     }
+    case 'set-password': {
+      const pw = positional[0] ?? generatePassword();
+      if (pw.length < 8) throw new Error('Password must be at least 8 characters');
+      const file = updateLocalServerConfig({ passwordHash: hashPassword(pw) });
+      console.log(`Password set (hash stored in ${path.basename(file)}, which is git-ignored).`);
+      console.log(`\n  Password: ${pw}\n`);
+      console.log('Restart the server for it to take effect. Existing logins are invalidated.');
+      await closeLogFiles();
+      return;
+    }
+    case 'remove-password': {
+      updateLocalServerConfig({ passwordHash: undefined });
+      console.log('Password protection removed. Restart the server.');
+      await closeLogFiles();
+      return;
+    }
     case 'list': {
       await svc.store.init();
       for (const p of svc.store.list()) {
@@ -173,6 +209,8 @@ async function main(): Promise<void> {
   analyze <video|projectId>      Import + analyse (or resume an existing project)
   render <projectId> [--force]   Render the selected clips
   list                           List projects
+  set-password [password]        Protect the web app with a password (random one if omitted)
+  remove-password                Turn password protection off
 Options: --count N  --game "GTA V"  --mode blur|crop|smart  --name NAME  --min-score N  --model sonnet|opus`);
       await closeLogFiles();
   }

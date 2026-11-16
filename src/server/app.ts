@@ -8,6 +8,7 @@ import archiver from 'archiver';
 import Busboy from 'busboy';
 import { z } from 'zod';
 import type { Services } from '../services.js';
+import { Auth } from './auth.js';
 import { projectSettingsSchema } from '../config/schema.js';
 import { AppError, NotFoundError, ValidationError, errorToJSON } from '../util/errors.js';
 import { ensureDir, exists, readJsonOr, writeJsonAtomic, assertDiskSpace } from '../util/fsx.js';
@@ -81,6 +82,15 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
   api.get('/health', (_req, res) => {
     res.json({ ok: true, uptime: process.uptime() });
   });
+
+  // Password protection (when server.passwordHash is set). Everything below requires a session.
+  const auth = new Auth({
+    passwordHash: svc.cfg.server.passwordHash,
+    requireOnLoopback: svc.cfg.server.requirePasswordOnLocalhost,
+    secretFile: path.join(svc.cfg.storage.dataDir, 'session-secret'),
+  });
+  api.use('/auth', auth.routes());
+  api.use(auth.guard());
 
   api.get('/system', h(async (_req, res) => res.json(await svc.systemInfo())));
 

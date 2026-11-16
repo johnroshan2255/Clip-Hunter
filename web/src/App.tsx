@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, subscribe, type ClaudeStatus, type SystemInfo } from './api';
+import { api, subscribe, type AuthStatus, type ClaudeStatus, type SystemInfo } from './api';
+import { Login } from './Login';
 import { Dashboard } from './Dashboard';
 import { ProjectView } from './ProjectView';
 import { ToastHost } from './ui';
@@ -37,6 +38,23 @@ function ClaudeBadge({ status }: { status: ClaudeStatus | null }) {
 }
 
 export function App() {
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
+  const checkAuth = () => {
+    api.authStatus().then(setAuth).catch(() => setAuth({ enabled: false, authenticated: true, canLogout: false }));
+  };
+  useEffect(() => {
+    checkAuth();
+    const onRequired = () => setAuth((a) => ({ enabled: true, canLogout: a?.canLogout ?? true, authenticated: false }));
+    window.addEventListener('cliphunter:auth-required', onRequired);
+    return () => window.removeEventListener('cliphunter:auth-required', onRequired);
+  }, []);
+
+  if (!auth) return null;
+  if (!auth.authenticated) return <Login onSuccess={checkAuth} />;
+  return <Main auth={auth} onLogout={() => void api.logout().then(checkAuth)} />;
+}
+
+function Main({ auth, onLogout }: { auth: AuthStatus; onLogout: () => void }) {
   const route = useHashRoute();
   const [sys, setSys] = useState<SystemInfo | null>(null);
   const [claude, setClaude] = useState<ClaudeStatus | null>(null);
@@ -61,6 +79,11 @@ export function App() {
           {sys && !sys.ffmpeg && <span className="badge danger">FFmpeg not found</span>}
           {sys && <span className="badge muted">{sys.freeDiskGb} GB free</span>}
           <ClaudeBadge status={claude} />
+          {auth.canLogout && (
+            <button className="btn small ghost" onClick={onLogout}>
+              Log out
+            </button>
+          )}
         </div>
       </header>
       <main className="content">{projectId ? <ProjectView id={projectId} /> : <Dashboard />}</main>

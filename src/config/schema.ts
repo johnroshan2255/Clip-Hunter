@@ -196,6 +196,10 @@ const serverSchema = z
     host: z.string().default('127.0.0.1'),
     /** Extra Host header names to accept (e.g. a DNS name pointing at this machine). */
     allowedHosts: z.array(z.string()).default([]),
+    /** scrypt hash of the shared access password (set with `npm run cli -- set-password`). Empty = no password. */
+    passwordHash: z.string().default(''),
+    /** Also require the password for requests from this computer (localhost). */
+    requirePasswordOnLocalhost: z.boolean().default(false),
     port: z.number().int().min(1).max(65535).default(4317),
     /** Concurrent analysis jobs (each may use several FFmpeg / Claude processes). */
     analysisConcurrency: z.number().int().min(1).max(4).default(1),

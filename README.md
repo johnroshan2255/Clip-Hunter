@@ -24,7 +24,22 @@ npm run build
 npm start               # http://127.0.0.1:4317
 ```
 
-**Share on your local network:** create `cliphunter.config.local.json` with `{ "server": { "host": "0.0.0.0" } }` and restart. On startup the server logs the addresses it is shared on, e.g. `http://192.168.1.25:4317`. Requests are accepted for this machine's own IPs and `<hostname>.local`; any other `Host` header is rejected. There is no login, so anyone on the same network can use the app. Only do this on a network you trust.
+**Share on your local network:** create `cliphunter.config.local.json` with `{ "server": { "host": "0.0.0.0" } }` and restart. On startup the server logs the addresses it is shared on, e.g. `http://192.168.1.x:4317`. Requests are accepted for this machine's own IPs and `<hostname>.local`; any other `Host` header is rejected.
+
+**Password protection** (recommended when sharing):
+
+```bash
+npm run cli -- set-password                 # generates a memorable password and prints it
+npm run cli -- set-password "my secret"     # or choose your own (8+ characters)
+npm run cli -- remove-password
+```
+
+Then restart the server. How it works:
+- Only a salted scrypt hash is stored, in the git-ignored `cliphunter.config.local.json`.
+- Logging in sets an HttpOnly, SameSite=Lax session cookie that lasts 30 days. Changing the password logs everyone out.
+- After 5 wrong attempts from the same device, that device is locked out, with longer lockouts for repeated failures.
+- Requests from this computer (localhost) skip the password unless `server.requirePasswordOnLocalhost` is `true`.
+- Everything except `/api/health` and the login endpoints needs a session, including clip video and downloads.
 
 Development mode (hot reload for the UI and server): `npm run dev`, then open http://localhost:5173.
 

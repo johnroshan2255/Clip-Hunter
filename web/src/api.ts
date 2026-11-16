@@ -71,12 +71,22 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const data = text ? (JSON.parse(text) as unknown) : undefined;
   if (!res.ok) {
     const err = (data as { error?: { message?: string; code?: string } } | undefined)?.error;
+    if (res.status === 401 && err?.code === 'AUTH_REQUIRED') window.dispatchEvent(new Event('cliphunter:auth-required'));
     throw new ApiError(err?.message ?? res.statusText, err?.code ?? 'HTTP_ERROR', res.status);
   }
   return data as T;
 }
 
+export interface AuthStatus {
+  enabled: boolean;
+  authenticated: boolean;
+  canLogout: boolean;
+}
+
 export const api = {
+  authStatus: () => req<AuthStatus>('GET', '/api/auth/status'),
+  login: (password: string) => req<{ ok: boolean }>('POST', '/api/auth/login', { password }),
+  logout: () => req<{ ok: boolean }>('POST', '/api/auth/logout'),
   system: () => req<SystemInfo>('GET', '/api/system'),
   claudeCheck: () => req<{ version: string; auth: { ok: boolean; message: string }; status: ClaudeStatus }>('POST', '/api/system/claude-check'),
   claudeResume: () => req<ClaudeStatus>('POST', '/api/system/claude-resume'),
