@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 import { Services } from '../services.js';
@@ -13,6 +14,11 @@ async function main(): Promise<void> {
   const { host, port } = svc.cfg.server;
   const server: Server = app.listen(port, host, () => {
     svc.logger.info(`ClipHunter server listening on http://${host}:${port}`);
+    if (host === '0.0.0.0' || host === '::') {
+      const lan = Object.values(os.networkInterfaces()).flatMap((l) => l ?? []).filter((a) => a.family === 'IPv4' && !a.internal);
+      for (const a of lan) svc.logger.info(`Shared on your network: http://${a.address}:${port}`);
+      svc.logger.warn('LAN sharing is on: anyone on this network can use ClipHunter (import videos from allowed folders, render, delete projects).');
+    }
   });
   // Check the Claude CLI in the background so the UI can show its status.
   void svc.claude.checkVersion().then(

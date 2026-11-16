@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import archiver from 'archiver';
 import Busboy from 'busboy';
@@ -34,15 +35,41 @@ const idParam = (req: Request, name = 'id'): string => {
   return v;
 };
 
+/**
+ * Host names this server answers to: loopback, the configured bind host, extra configured
+ * hosts and — re-read every 30s so Wi-Fi/DHCP changes are picked up — this machine's own
+ * interface addresses and hostname (for LAN sharing).
+ */
+export function localHostNames(bindHost: string, extra: string[]): () => Set<string> {
+  let cache: Set<string> | null = null;
+  let at = 0;
+  return () => {
+    if (cache && Date.now() - at < 30_000) return cache;
+    const s = new Set<string>(['localhost', '127.0.0.1', '::1', '[::1]', bindHost.toLowerCase(), ...extra.map((h) => h.toLowerCase())]);
+    const hn = os.hostname().toLowerCase();
+    s.add(hn);
+    s.add(hn.endsWith('.local') ? hn : `${hn}.local`);
+    for (const list of Object.values(os.networkInterfaces())) {
+      for (const a of list ?? []) s.add(a.family === 'IPv6' ? `[${a.address.toLowerCase()}]` : a.address);
+    }
+    cache = s;
+    at = Date.now();
+    return s;
+  };
+}
+
 export function createApp(svc: Services, opts: { staticDir?: string } = {}): express.Express {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
 
-  // Only accept requests addressed to this local server (basic DNS-rebinding guard).
+  // Only accept requests addressed to this machine (DNS-rebinding guard). When the server is
+  // shared on the LAN, this machine's own interface IPs and hostname are allowed too.
+  const allowedHosts = localHostNames(svc.cfg.server.host, svc.cfg.server.allowedHosts);
   app.use((req, res, next) => {
-    const host = (req.headers.host ?? '').split(':')[0];
-    if (host && !['localhost', '127.0.0.1', '::1', '[::1]', svc.cfg.server.host].includes(host)) {
+    const raw = (req.headers.host ?? '').toLowerCase();
+    const host = raw.startsWith('[') ? raw.slice(0, raw.indexOf(']') + 1) : raw.split(':')[0]!;
+    if (host && !allowedHosts().has(host)) {
       res.status(403).json({ error: { code: 'FORBIDDEN_HOST', message: 'Host not allowed' } });
       return;
     }

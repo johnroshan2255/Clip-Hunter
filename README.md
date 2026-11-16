@@ -24,6 +24,8 @@ npm run build
 npm start               # http://127.0.0.1:4317
 ```
 
+**Share on your local network:** create `cliphunter.config.local.json` with `{ "server": { "host": "0.0.0.0" } }` and restart. On startup the server logs the addresses it is shared on, e.g. `http://192.168.1.25:4317`. Requests are accepted for this machine's own IPs and `<hostname>.local`; any other `Host` header is rejected. There is no login, so anyone on the same network can use the app. Only do this on a network you trust.
+
 Development mode (hot reload for the UI and server): `npm run dev`, then open http://localhost:5173.
 
 Headless CLI:

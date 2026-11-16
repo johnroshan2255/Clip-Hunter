@@ -192,7 +192,10 @@ const storageSchema = z
 
 const serverSchema = z
   .object({
+    /** Bind address. 127.0.0.1 = this computer only; 0.0.0.0 = share on your local network. */
     host: z.string().default('127.0.0.1'),
+    /** Extra Host header names to accept (e.g. a DNS name pointing at this machine). */
+    allowedHosts: z.array(z.string()).default([]),
     port: z.number().int().min(1).max(65535).default(4317),
     /** Concurrent analysis jobs (each may use several FFmpeg / Claude processes). */
     analysisConcurrency: z.number().int().min(1).max(4).default(1),
