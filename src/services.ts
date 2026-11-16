@@ -161,11 +161,20 @@ export class Services {
 
   async enqueueAnalysis(projectId: string, fromStage?: StageName) {
     this.store.get(projectId);
-    const job = await this.queue.enqueue('analyze', projectId, fromStage ? { fromStage } : {});
+    if (this.queue.activeForProject(projectId)) return this.queue.enqueue('analyze', projectId, {}); // throws JOB_EXISTS
+    // Mark queued *before* enqueueing: the queue may start the job immediately and set "analyzing".
+    const prevStatus = this.store.get(projectId).status;
     await this.store.update(projectId, (p) => {
       p.status = 'queued';
     });
-    return job;
+    try {
+      return await this.queue.enqueue('analyze', projectId, fromStage ? { fromStage } : {});
+    } catch (err) {
+      await this.store.update(projectId, (p) => {
+        p.status = prevStatus;
+      });
+      throw err;
+    }
   }
 
   async enqueueRender(projectId: string, params: RenderJobParams = {}) {

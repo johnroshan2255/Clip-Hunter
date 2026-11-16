@@ -523,7 +523,8 @@ async function stageInspection(ctx: PipelineContext): Promise<string> {
     }
   }
   // Pass-1 moments that were not inspected (budget) remain available as unrefined candidates.
-  for (const m of disc.moments) if (!covered.has(m.id) && m.score >= c.minEntertainmentScore) candidates.push(fromDiscovery(m, ['Not inspected in pass 2 (inspection budget)']));
+  // Near-threshold ones are kept as backfill (selection only relaxes the threshold by ≤2 points to reach the count).
+  for (const m of disc.moments) if (!covered.has(m.id) && m.score >= c.minEntertainmentScore - 2) candidates.push(fromDiscovery(m, ['Not inspected in pass 2']));
   await writeJsonAtomic(path.join(ctx.paths.inspectionDir, 'raw-candidates.json'), candidates);
   const rejected = records.filter((r) => r.result?.verdict === 'reject').length;
   const failed = records.filter((r) => r.error).length;

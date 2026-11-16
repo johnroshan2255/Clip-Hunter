@@ -62,8 +62,8 @@ const analysisSchema = z
     detailContextSeconds: z.number().min(0).max(60).default(8),
     /** Max length of a single pass-2 inspection window. */
     detailMaxWindowSeconds: z.number().min(10).max(300).default(90),
-    /** Pass-1 ranges below this score are not inspected in pass 2. */
-    discoveryMinScore: z.number().min(0).max(10).default(5),
+    /** Pass-1 ranges below this score are not inspected in pass 2 (the inspection budget is filled best-first). */
+    discoveryMinScore: z.number().min(0).max(10).default(4),
     /** Max pass-2 inspections (0 = automatic: 2.5x desired clip count, at least 20). */
     maxDetailInspections: z.number().int().min(0).max(500).default(0),
     /** Audio stream index to analyse/keep (-1 = default stream). */

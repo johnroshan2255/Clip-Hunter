@@ -158,3 +158,21 @@ The mock CLI speaks the same stream-json protocol, which lets the tests cover co
 - Frame extraction and scene detection: about 11× realtime for 1080p60, so roughly 5–6 minutes per hour of footage, using VideoToolbox decoding with a software fallback.
 - A one-hour video needs about 15 discovery requests plus 20–50 inspection requests.
 - Rendering a 20-second clip takes 3–7 seconds with the `medium` preset.
+
+## Acceptance test (real footage)
+
+Run on 2026-11-16 on an Apple M4 (16 GB) using the default configuration (`claude.model = sonnet`, 2 s sampling, 20 clips, blur layout). Source: a public 72-minute GTA V story-mode session recording from the Internet Archive (`gta-5-08122023-2`). It is 1920×1080 at 59.94 fps, H.264/AAC and 3.34 GB, with streamer overlays. The game was **not** specified; it was auto-detected as "GTA V".
+
+| Step | Result |
+|---|---|
+| 1. Import 1 h+ MP4 | ✅ hardlinked into the project (no copy) |
+| 2. Metadata | ✅ 1:12:23, 1920×1080, 59.94 fps, h264 + aac |
+| 3. Contact sheets | ✅ 2,172 frames → 109 sheets; frames + scenes + audio in about 5 min |
+| 4. Claude CLI analysis | ✅ 64 requests through the logged-in CLI, 0 failures, about 7 s per discovery request |
+| 5. ≥ 20 candidates | ✅ 25 pass-1 ranges → 25 inspected windows (2 rejected as cutscenes) → **21 candidates** |
+| 6. Timestamp refinement | ✅ pass 2 at 2 fps; clips 10.7–35.8 s with the peak inside |
+| 7–8. 20 clips at 1080×1920 | ✅ **20/20 rendered** (about 5½ min, concurrency 2) |
+| 9. Validation | ✅ 20/20: h264/aac, yuv420p, 30 fps, duration within tolerance, full decode OK, peaks ≤ −0.2 dBFS |
+| 10. Displayed in UI | ✅ 20/20 play in the browser (puppeteer check), no page errors |
+
+The footage is mostly cutscenes and ordinary driving, so Claude's scores were honestly modest (4.5–6.8). The selection notes therefore record that 11 clips were picked below the default threshold of 6 to reach 20. Raise `clips.minEntertainmentScore`, or turn off backfill by lowering `clips.count`, if you only want the strongest moments.

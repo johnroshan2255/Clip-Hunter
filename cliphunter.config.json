@@ -26,7 +26,7 @@
     "detailFps": 2,
     "detailContextSeconds": 8,
     "detailMaxWindowSeconds": 90,
-    "discoveryMinScore": 5,
+    "discoveryMinScore": 4,
     "maxDetailInspections": 0,
     "audioStreamIndex": -1,
     "audioWindowSeconds": 0.25,
