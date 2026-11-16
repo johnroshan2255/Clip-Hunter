@@ -25,7 +25,7 @@ export interface ProjectDetail extends Project {
     clips: { count: number; minDurationSeconds: number; maxDurationSeconds: number; minEntertainmentScore: number };
     render: { compositionMode: 'blur' | 'crop' | 'smart'; width: number; height: number; fps: number };
     analysis: { gameTitle: string };
-    text: { introText: string; endingText: string; aiCaptions: boolean; subtitles: boolean };
+    text: { introText: string; endingText: string; aiCaptions: boolean; subtitles: boolean; spokenLanguage: string; subtitleLanguages: string[]; hindiScript: 'devanagari' | 'roman' };
     audio: { normalize: boolean; volume: number; backgroundMusicPath: string };
   };
 }
@@ -49,7 +49,7 @@ export interface SystemInfo {
   ffmpeg: string | null;
   ffprobe: string | null;
   claude: ClaudeStatus;
-  whisper: { ok: boolean; reason?: string };
+  whisper: { ok: boolean; reason?: string; multilingual?: boolean };
   freeDiskGb: number;
   cpus: number;
   config: Record<string, unknown>;
@@ -130,6 +130,7 @@ export const urls = {
   clipVideo: (id: string, clipId: string, v?: string) => `/api/projects/${id}/clips/${clipId}/video${v ? `?v=${encodeURIComponent(v)}` : ''}`,
   clipThumb: (id: string, clipId: string, v?: string) => `/api/projects/${id}/clips/${clipId}/thumbnail${v ? `?v=${encodeURIComponent(v)}` : ''}`,
   clipDownload: (id: string, clipId: string) => `/api/projects/${id}/clips/${clipId}/download`,
+  clipSubtitles: (id: string, clipId: string, lang: string) => `/api/projects/${id}/clips/${clipId}/subtitles/${lang}`,
   frame: (id: string, t: number) => `/api/projects/${id}/frame?t=${t.toFixed(1)}`,
   preview: (id: string, cid: string, start: number, end: number) => `/api/projects/${id}/candidates/${cid}/preview?s=${start}&e=${end}`,
   exportZip: (id: string) => `/api/projects/${id}/export.zip`,

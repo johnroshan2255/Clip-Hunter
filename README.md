@@ -117,7 +117,48 @@ The original game audio is kept by default, with two-pass `loudnorm` to −14 LU
 
 ## Text
 
-Optional intro and ending text, plus an optional AI title caption (`text.aiCaptions`, off by default). Style is configurable: font family, size, colour, outline and shadow. Subtitles are only produced when a local whisper.cpp model is configured **and** speech is detected. Non-speech tokens (music, noise) are dropped and no dialogue is ever invented.
+Optional intro and ending text, plus an optional AI title caption (`text.aiCaptions`, off by default). Style is configurable: font family, size, colour, outline and shadow. Fonts that can render Devanagari are picked automatically for Hindi.
+
+## Subtitles (English, Hindi and more)
+
+Speech is transcribed **locally** with whisper.cpp; nothing is uploaded. Lines that aren't already in a target language are translated with your Claude CLI, keeping whisper's timing. Each clip gets the subtitles burned in (two languages stacked, e.g. Hindi above English) and `.srt` caption files (`clip-001.hi.srt`, `clip-001.en.srt`) for uploading as platform captions.
+
+Setup (macOS):
+
+```bash
+brew install whisper-cpp
+mkdir -p ~/.cache/cliphunter/whisper && cd ~/.cache/cliphunter/whisper
+curl -LO https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin   # multilingual, ~574 MB
+curl -LO https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin          # voice activity detection, <1 MB
+```
+
+`cliphunter.config.local.json`:
+
+```json
+{ "text": {
+    "subtitles": true,
+    "spokenLanguage": "hi+en",
+    "subtitleLanguages": ["hi", "en"],
+    "hindiScript": "devanagari",
+    "whisperExecutable": "/opt/homebrew/bin/whisper-cli",
+    "whisperModelPath": "~/.cache/cliphunter/whisper/ggml-large-v3-turbo-q5_0.bin",
+    "whisperVadModelPath": "~/.cache/cliphunter/whisper/ggml-silero-v5.1.2.bin"
+} }
+```
+
+(Use absolute paths. These can also be set per project under Settings → Subtitles.)
+
+- `spokenLanguage`: one of
+  - `auto`: any language.
+  - `en` or `hi`: forced.
+  - `hi+en`: for Hinglish streams. Detection is limited to those languages, which fixes whisper's common Hindi→Urdu confusion.
+- `subtitleLanguages`: one or two of `hi`, `en`, any ISO code, or `original` (as spoken). They are listed top to bottom.
+- `hindiScript`: `devanagari` (हिंदी) or `roman` (Hinglish, "bhai ye dekho").
+- **Mixed-language clips:** the voice activity detector splits speech into utterances, and the language is detected per utterance. Short shouts take the language of the clip's longer speech, because whisper's detection on 1–2 second clips is unreliable.
+- **Accuracy safeguards:**
+  - Whisper's known silence hallucinations ("thanks for watching") and low-confidence segments are dropped.
+  - Clips with no speech get no subtitles.
+  - The translator is told never to add content, and translations are validated: one output line per input line, and Devanagari when requested.
 
 ## Configuration
 

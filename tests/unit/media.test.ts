@@ -154,8 +154,8 @@ describe('misc parsers', () => {
     expect(parseMaxVolume('[Parsed_volumedetect_0] max_volume: -0.5 dB')).toBe(-0.5);
   });
   it('whisper output filters non-speech', () => {
-    const segs = parseWhisperJson({ transcription: [{ offsets: { from: 0, to: 1500 }, text: ' [Music]' }, { offsets: { from: 2000, to: 3500 }, text: ' Watch this!' }] });
-    expect(segs).toEqual([{ start: 2, end: 3.5, text: 'Watch this!' }]);
+    const t = parseWhisperJson({ result: { language: 'en' }, transcription: [{ offsets: { from: 0, to: 1500 }, text: ' [Music]' }, { offsets: { from: 2000, to: 3500 }, text: ' Watch this!' }] });
+    expect(t).toMatchObject({ language: 'en', segments: [{ start: 2, end: 3.5, text: 'Watch this!' }] });
   });
   it('wraps text', () => {
     expect(wrapText('one two three four five six seven', 60, 400).length).toBeGreaterThan(1);

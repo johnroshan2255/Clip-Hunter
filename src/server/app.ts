@@ -386,6 +386,15 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
     res.download(abs, `${project.id}-${clip.id}.mp4`);
   }));
 
+  api.get('/projects/:id/clips/:clipId/subtitles/:lang', h(async (req, res) => {
+    const id = idParam(req);
+    const lang = idParam(req, 'lang');
+    const { clip, project } = clipFile(id, idParam(req, 'clipId'), 'file');
+    const sub = clip.subtitleFiles?.find((f) => f.lang === lang);
+    if (!sub) throw new NotFoundError('No subtitles in that language for this clip');
+    res.download(svc.store.paths(id).abs(sub.file), `${project.id}-${clip.id}.${lang}.srt`);
+  }));
+
   api.delete('/projects/:id/clips/:clipId', h(async (req, res) => {
     const id = idParam(req);
     const clipId = idParam(req, 'clipId');
@@ -394,7 +403,7 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
     if (!c) throw new NotFoundError('Clip not found');
     if (c.status === 'rendering' || c.status === 'validating') throw new ValidationError('Clip is currently rendering');
     const paths = svc.store.paths(id);
-    for (const rel of [c.file, c.thumbnail]) if (rel) await fsp.rm(paths.abs(rel), { force: true });
+    for (const rel of [c.file, c.thumbnail, ...(c.subtitleFiles ?? []).map((f) => f.file)]) if (rel) await fsp.rm(paths.abs(rel), { force: true });
     // Deselect the moment so the next render does not recreate it.
     const list = await readJsonOr<Candidate[]>(paths.candidatesFile, []);
     const cand = list.find((x) => x.id === c.candidateId);
@@ -424,7 +433,10 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
     const zip = archiver('zip', { store: true });
     zip.on('error', (err) => res.destroy(err));
     zip.pipe(res);
-    for (const c of clips) zip.file(paths.abs(c.file!), { name: `${c.id}.mp4` });
+    for (const c of clips) {
+      zip.file(paths.abs(c.file!), { name: `${c.id}.mp4` });
+      for (const sub of c.subtitleFiles ?? []) zip.file(paths.abs(sub.file), { name: `${c.id}.${sub.lang}.srt` });
+    }
     zip.append(JSON.stringify(clips.map((c) => ({ id: c.id, title: c.title, category: c.category, start: c.start, end: c.end, score: c.score })), null, 2), { name: 'clips.json' });
     await zip.finalize();
   }));

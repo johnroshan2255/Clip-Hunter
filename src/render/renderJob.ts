@@ -9,6 +9,7 @@ import { Semaphore } from '../util/concurrency.js';
 import { AppError, errorToJSON, isCancelled } from '../util/errors.js';
 import type { Logger } from '../util/logger.js';
 import { renderClip, renderKey } from './renderClip.js';
+import type { ClaudeCli } from '../ai/claudeCli.js';
 
 export interface RenderJobParams {
   /** Only (re-)render these clip ids. */
@@ -65,6 +66,7 @@ export async function runRenderJob(o: {
   logger: Logger;
   signal: AbortSignal;
   params: RenderJobParams;
+  claude?: ClaudeCli;
   onProgress: (fraction: number, message?: string) => void;
 }): Promise<string> {
   const { store, projectId, cfg } = o;
@@ -152,6 +154,8 @@ export async function runRenderJob(o: {
               workDir: path.join(paths.workDir, id),
               signal: o.signal,
               logger: o.logger,
+              claude: o.claude,
+              game: project.game || cfg.analysis.gameTitle || undefined,
               onProgress: (f) => {
                 progress.set(id, f);
                 if (f - lastP > 0.05) {
@@ -179,6 +183,8 @@ export async function runRenderJob(o: {
               renderedAt: new Date().toISOString(),
               renderMs: r.renderMs,
               subtitles: r.subtitles,
+              spokenLanguage: r.spokenLanguage,
+              subtitleFiles: r.subtitleFiles.map((f) => ({ lang: f.lang, file: paths.rel(f.file) })),
               renderKey: key,
               warnings: r.validation.warnings,
               error: undefined,

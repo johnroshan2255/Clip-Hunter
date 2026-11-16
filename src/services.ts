@@ -68,6 +68,7 @@ export class Services {
         logger: this.store.logger(job.projectId, 'rendering'),
         signal,
         params: job.params as RenderJobParams,
+        claude: this.claude,
         onProgress: progress,
       });
     });

@@ -19,6 +19,15 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
   const [ending, setEnding] = useState(e.text.endingText);
   const [captions, setCaptions] = useState(e.text.aiCaptions);
   const [subs, setSubs] = useState(e.text.subtitles);
+  const [spoken, setSpoken] = useState(e.text.spokenLanguage);
+  const [subLangs, setSubLangs] = useState<string[]>(e.text.subtitleLanguages);
+  const [hindiScript, setHindiScript] = useState(e.text.hindiScript);
+  const toggleLang = (l: string) =>
+    setSubLangs((cur) => {
+      if (cur.includes(l)) return cur.length > 1 ? cur.filter((x) => x !== l) : cur;
+      const next = [...cur.filter((x) => x !== 'original'), l];
+      return next.slice(-2);
+    });
 
   const save = async () => {
     try {
@@ -28,7 +37,7 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
           clips: { count, minDurationSeconds: minDur, maxDurationSeconds: maxDur, minEntertainmentScore: minScore },
           render: { compositionMode: mode, fps },
           audio: { normalize, volume, backgroundMusicPath: music },
-          text: { introText: intro, endingText: ending, aiCaptions: captions, subtitles: subs },
+          text: { introText: intro, endingText: ending, aiCaptions: captions, subtitles: subs, spokenLanguage: spoken, subtitleLanguages: subLangs, hindiScript },
         },
       });
       toast('Settings saved. Changes to clip count/score apply on “Re-run selection”; render settings apply to the next render.', 'ok');
@@ -75,7 +84,37 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
         <label><span>Intro text</span><input value={intro} onChange={(x) => setIntro(x.target.value)} placeholder="(none)" /></label>
         <label><span>Ending text</span><input value={ending} onChange={(x) => setEnding(x.target.value)} placeholder="(none)" /></label>
         <label className="check"><input type="checkbox" checked={captions} onChange={(x) => setCaptions(x.target.checked)} /> Show AI title caption</label>
-        <label className="check"><input type="checkbox" checked={subs} onChange={(x) => setSubs(x.target.checked)} /> Subtitles when speech is detected (needs local whisper.cpp)</label>
+      </div>
+      <h3>Subtitles</h3>
+      <div className="form-grid">
+        <label className="check"><input type="checkbox" checked={subs} onChange={(x) => setSubs(x.target.checked)} /> Add subtitles when speech is detected (local whisper.cpp)</label>
+        <label>
+          <span>Spoken language</span>
+          <select value={spoken} onChange={(x) => setSpoken(x.target.value)} disabled={!subs}>
+            <option value="auto">Auto-detect (any language)</option>
+            <option value="hi+en">Hindi + English (mixed / Hinglish)</option>
+            <option value="en">English only</option>
+            <option value="hi">Hindi only</option>
+          </select>
+        </label>
+        <div className="lang-pick">
+          <span className="small muted">Subtitle languages (max 2, shown top → bottom)</span>
+          <div className="seg">
+            {[['hi', 'Hindi'], ['en', 'English'], ['original', 'As spoken']].map(([code, label]) => (
+              <button key={code} type="button" disabled={!subs} className={subLangs.includes(code!) ? 'active' : ''} onClick={() => (code === 'original' ? setSubLangs(['original']) : toggleLang(code!))}>
+                {subLangs.includes(code!) ? `${subLangs.indexOf(code!) + 1}. ` : ''}{label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label>
+          <span>Hindi script</span>
+          <select value={hindiScript} onChange={(x) => setHindiScript(x.target.value as typeof hindiScript)} disabled={!subs || !subLangs.includes('hi')}>
+            <option value="devanagari">देवनागरी (Devanagari)</option>
+            <option value="roman">Hinglish (Latin letters)</option>
+          </select>
+        </label>
+        <div className="small muted">Speech is transcribed on this Mac; missing languages are translated with your Claude CLI. .srt caption files are saved with each clip.</div>
       </div>
       <div className="actions">
         <button className="btn primary" onClick={() => void save()}>Save settings</button>

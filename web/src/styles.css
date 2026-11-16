@@ -207,3 +207,6 @@ tr.moment.is-selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); 
 .login input { font-size: 15px; color: var(--text); }
 .login-brand { font-size: 18px; }
 .login .btn { justify-content: center; }
+
+.lang-pick { display: flex; flex-direction: column; gap: 4px; }
+.seg button:disabled { opacity: 0.45; cursor: not-allowed; }

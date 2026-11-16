@@ -135,10 +135,26 @@ const textSchema = z
     aiCaptions: z.boolean().default(false),
     /** Burn subtitles when speech is detected and a local transcriber exists. */
     subtitles: z.boolean().default(false),
+    /**
+     * Language spoken in the recording: "auto", one ISO code ("en", "hi"), or a set such as
+     * "hi+en" for clips that switch between languages (detection is restricted to that set).
+     */
+    spokenLanguage: z.string().regex(/^(auto|[a-z]{2,3}(\+[a-z]{2,3})*)$/).default('auto'),
+    /**
+     * Subtitle languages to burn in, top to bottom (max 2). "original" = whatever was spoken;
+     * any other ISO code (e.g. "hi", "en") is translated with the Claude CLI when it differs from the speech.
+     */
+    subtitleLanguages: z.array(z.string().regex(/^(original|[a-z]{2,3})$/)).min(1).max(2).default(['original']),
+    /** Script for Hindi subtitles: Devanagari (हिंदी) or romanised Hinglish. */
+    hindiScript: z.enum(['devanagari', 'roman']).default('devanagari'),
+    /** Also write .srt caption files next to each clip (for uploading as platform captions). */
+    exportSrt: z.boolean().default(true),
     /** whisper.cpp CLI used for optional local speech recognition. */
     whisperExecutable: z.string().default('whisper-cli'),
-    /** Path to a whisper.cpp ggml model (e.g. ggml-base.en.bin). Empty = transcription disabled. */
+    /** Path to a whisper.cpp ggml model (e.g. ggml-large-v3-turbo-q5_0.bin). Empty = transcription disabled. */
     whisperModelPath: z.string().default(''),
+    /** Silero VAD model for whisper.cpp (ggml-silero-v5.1.2.bin): per-utterance language detection. */
+    whisperVadModelPath: z.string().default(''),
     style: textStyleSchema,
     subtitleStyle: textStyleSchema.default({ fontSize: 52, positionY: 0.78 }),
   })
@@ -280,6 +296,9 @@ export const projectSettingsSchema = z
         endingText: z.string().max(200),
         aiCaptions: z.boolean(),
         subtitles: z.boolean(),
+        spokenLanguage: z.string().regex(/^(auto|[a-z]{2,3}(\+[a-z]{2,3})*)$/),
+        subtitleLanguages: z.array(z.string().regex(/^(original|[a-z]{2,3})$/)).min(1).max(2),
+        hindiScript: z.enum(['devanagari', 'roman']),
       })
       .partial(),
   })

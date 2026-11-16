@@ -8,9 +8,12 @@ import { runProcess } from '../util/process.js';
 import { ensureDir, removePath, exists } from '../util/fsx.js';
 import { buildFilterGraph, parseLoudnorm, type Overlay } from './filters.js';
 import { buildCropPath, sampleMotion, type CropPath } from './smartCrop.js';
-import { renderTextPng } from './textOverlay.js';
+import { renderTextBlocksPng, renderTextPng } from './textOverlay.js';
 import { validateClip } from './validate.js';
-import { transcribeSegment, whisperAvailable } from '../transcribe/whisper.js';
+import { toSrt, transcribeSegment, whisperAvailable } from '../transcribe/whisper.js';
+import { translateLines } from '../transcribe/translate.js';
+import { buildSubtitleTracks, type SubtitleTrack } from '../transcribe/subtitles.js';
+import type { ClaudeCli } from '../ai/claudeCli.js';
 import { ValidationError, isCancelled } from '../util/errors.js';
 import type { Logger } from '../util/logger.js';
 
@@ -28,6 +31,10 @@ export interface RenderClipInput {
   signal?: AbortSignal;
   logger: Logger;
   onProgress?: (fraction: number) => void;
+  /** Claude CLI used to translate subtitles into other languages (optional). */
+  claude?: ClaudeCli;
+  /** Game name, gives the translator context. */
+  game?: string;
 }
 
 export interface RenderClipResult {
@@ -35,6 +42,9 @@ export interface RenderClipResult {
   compositionUsed: 'blur' | 'crop' | 'smart';
   cropPath?: CropPath;
   subtitles: boolean;
+  spokenLanguage?: string;
+  /** Absolute paths of exported .srt files. */
+  subtitleFiles: Array<{ lang: string; file: string }>;
   warnings: string[];
   renderMs: number;
 }
@@ -126,25 +136,48 @@ export async function renderClip(o: RenderClipInput): Promise<RenderClipResult> 
   if (T.aiCaptions && o.candidate.title.trim()) await addText(o.candidate.title, T.introText.trim() ? T.introSeconds : 0, Math.min(duration, (T.introText.trim() ? T.introSeconds : 0) + 3), T.style, 'caption');
   if (T.endingText.trim()) await addText(T.endingText, Math.max(0, duration - T.endingSeconds), duration, T.style, 'ending');
 
+  // ── Subtitles: local whisper.cpp transcription + optional Claude translation ──
   let subtitles = false;
+  let spokenLanguage: string | undefined;
+  let subtitleTracks: SubtitleTrack[] = [];
   if (T.subtitles && md.selectedAudioIndex !== null) {
     const avail = await whisperAvailable({ executable: T.whisperExecutable, modelPath: T.whisperModelPath });
     if (!avail.ok) warnings.push(`Subtitles skipped: ${avail.reason}`);
     else {
       try {
-        const segs = await transcribeSegment({
+        const transcript = await transcribeSegment({
           tools: o.tools,
-          whisper: { executable: T.whisperExecutable, modelPath: T.whisperModelPath },
+          whisper: { executable: T.whisperExecutable, modelPath: T.whisperModelPath, vadModelPath: T.whisperVadModelPath },
           source: o.source,
           audioStreamIndex: md.selectedAudioIndex,
           start: o.start,
           duration,
+          language: T.spokenLanguage,
           workDir: path.join(o.workDir, 'whisper'),
           signal: o.signal,
         });
-        for (const [i, s] of segs.slice(0, 40).entries()) await addText(s.text, s.start, Math.min(duration, s.end), T.subtitleStyle, `sub${i}`);
-        subtitles = segs.length > 0;
-        if (!segs.length) warnings.push('No speech detected; no subtitles added');
+        const translate = o.claude
+          ? (lines: string[], from: string, to: string) => translateLines(o.claude!, lines, from, to, { hindiScript: T.hindiScript, game: o.game, signal: o.signal })
+          : null;
+        const res = await buildSubtitleTracks(transcript, T.subtitleLanguages, translate);
+        warnings.push(...res.warnings);
+        spokenLanguage = res.spokenLanguage;
+        subtitleTracks = res.tracks;
+        const segCount = Math.min(40, subtitleTracks[0]?.segments.length ?? 0);
+        // Second language: slightly smaller, yellow, directly below the first.
+        const secondary = { ...T.subtitleStyle, fontSize: Math.round(T.subtitleStyle.fontSize * 0.82), color: '#FFE34D' };
+        for (let i = 0; i < segCount; i++) {
+          const seg = subtitleTracks[0]!.segments[i]!;
+          const blocks = subtitleTracks.map((tr, k) => ({ text: tr.segments[i]!.text, style: k === 0 ? T.subtitleStyle : secondary })).filter((b) => b.text.trim());
+          if (!blocks.length) continue;
+          const png = path.join(o.workDir, `sub${i}.png`);
+          const { height } = await renderTextBlocksPng(blocks, R.width, png);
+          inputs.push('-i', png);
+          const y = Math.max(0, Math.min(R.height - height, T.subtitleStyle.positionY * R.height - height / 2));
+          overlays.push({ inputIndex: nextInput++, start: seg.start, end: Math.min(duration, Math.max(seg.end, seg.start + 0.8)), y });
+        }
+        subtitles = segCount > 0;
+        if (!transcript.segments.length) warnings.push('No speech detected; no subtitles added');
       } catch (err) {
         if (isCancelled(err)) throw err;
         warnings.push(`Transcription failed: ${(err as Error).message.slice(0, 120)}`);
@@ -199,9 +232,23 @@ export async function renderClip(o: RenderClipInput): Promise<RenderClipResult> 
   validation.warnings.push(...warnings);
   if (!validation.ok) {
     await fsp.rm(tmpOut, { force: true });
-    return { validation, compositionUsed: mode, cropPath, subtitles, warnings, renderMs: Date.now() - started };
+    return { validation, compositionUsed: mode, cropPath, subtitles, spokenLanguage, subtitleFiles: [], warnings, renderMs: Date.now() - started };
   }
   await fsp.rename(tmpOut, o.outFile);
+
+  // Caption files next to the clip (clip-001.hi.srt, clip-001.en.srt) for uploading as platform captions.
+  const subtitleFiles: Array<{ lang: string; file: string }> = [];
+  const stem = o.outFile.replace(/\.mp4$/, '');
+  for (const ext of ['srt']) for (const old of await fsp.readdir(path.dirname(o.outFile)).catch(() => [] as string[])) {
+    if (old.startsWith(`${path.basename(stem)}.`) && old.endsWith(`.${ext}`)) await fsp.rm(path.join(path.dirname(o.outFile), old), { force: true });
+  }
+  if (T.exportSrt) {
+    for (const tr of subtitleTracks) {
+      const file = `${stem}.${tr.lang}.srt`;
+      await fsp.writeFile(file, toSrt(tr.segments));
+      subtitleFiles.push({ lang: tr.lang, file });
+    }
+  }
 
   // Thumbnail from the rendered vertical clip at the peak moment.
   const peakRel = Math.min(duration - 0.1, Math.max(0, (o.candidate.peakTime ?? o.start + duration / 2) - o.start));
@@ -218,5 +265,5 @@ export async function renderClip(o: RenderClipInput): Promise<RenderClipResult> 
   }
   o.onProgress?.(1);
   await removePath(o.workDir);
-  return { validation, compositionUsed: mode, cropPath, subtitles, warnings, renderMs: Date.now() - started };
+  return { validation, compositionUsed: mode, cropPath, subtitles, spokenLanguage, subtitleFiles, warnings, renderMs: Date.now() - started };
 }

@@ -267,6 +267,10 @@ export interface ClipRecord {
   renderedAt?: string;
   renderMs?: number;
   subtitles?: boolean;
+  /** Language detected in the clip's speech (ISO code). */
+  spokenLanguage?: string;
+  /** Exported caption files (paths relative to project dir). */
+  subtitleFiles?: Array<{ lang: string; file: string }>;
   /** Hash of everything that affects the output; unchanged key = reuse completed render. */
   renderKey?: string;
   warnings?: string[];

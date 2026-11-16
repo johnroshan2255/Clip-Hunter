@@ -30,6 +30,12 @@ function ClipCard({ c, project, onChanged, busy }: { c: ClipRecord; project: Pro
         {c.warnings?.length ? <div className="small warn-text">{c.warnings[0]}</div> : null}
         <div className="row-actions">
           {done && <a className="btn small" href={urls.clipDownload(project.id, c.id)}>Download</a>}
+          {done &&
+            c.subtitleFiles?.map((f) => (
+              <a key={f.lang} className="btn small" href={urls.clipSubtitles(project.id, c.id, f.lang)} title={`Download ${f.lang} captions (.srt)`}>
+                {f.lang.toUpperCase()} .srt
+              </a>
+            ))}
           {(c.status === 'failed' || c.status === 'cancelled') && (
             <button className="btn small primary" disabled={busy} onClick={() => void api.render(project.id, { clipIds: [c.id] }).then(() => toast(`Retrying ${c.id}`, 'ok')).catch(toastError)}>Retry</button>
           )}
@@ -64,6 +70,7 @@ function ClipCard({ c, project, onChanged, busy }: { c: ClipRecord; project: Pro
               </>
             )}
             {c.warnings?.length ? <><dt>Warnings</dt><dd>{c.warnings.join('; ')}</dd></> : null}
+            {c.subtitles !== undefined && <><dt>Subtitles</dt><dd>{c.subtitles ? `${c.subtitleFiles?.map((f) => f.lang).join(' + ') || 'yes'} (speech: ${c.spokenLanguage ?? '?'})` : 'none'}</dd></>}
             {c.renderMs && <><dt>Render time</dt><dd>{(c.renderMs / 1000).toFixed(1)}s</dd></>}
             <dt>Attempts</dt><dd>{c.attempts}</dd>
           </dl>
