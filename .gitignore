@@ -1,0 +1,9 @@
+node_modules/
+dist/
+projects/
+data/
+exports/
+*.log
+.DS_Store
+cliphunter.config.local.json
+tests/fixtures/media/

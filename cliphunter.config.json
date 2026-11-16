@@ -1,0 +1,110 @@
+{
+  "claude": {
+    "executable": "claude",
+    "model": "sonnet",
+    "fallbackModel": "",
+    "effort": "",
+    "maxConcurrent": 2,
+    "timeoutSeconds": 420,
+    "maxRetries": 2,
+    "pauseAtUtilization": 0.95,
+    "usagePauseMinutes": 15,
+    "safeMode": true
+  },
+  "analysis": {
+    "gameTitle": "",
+    "frameIntervalSeconds": 2,
+    "analysisWidth": 480,
+    "contactSheetColumns": 4,
+    "contactSheetRows": 5,
+    "contactSheetTileWidth": 384,
+    "sheetsPerRequest": 6,
+    "extractionChunkSeconds": 600,
+    "extractionConcurrency": 2,
+    "hardwareDecode": true,
+    "sceneThreshold": 12,
+    "detailFps": 2,
+    "detailContextSeconds": 8,
+    "detailMaxWindowSeconds": 90,
+    "discoveryMinScore": 5,
+    "maxDetailInspections": 0,
+    "audioStreamIndex": -1,
+    "audioWindowSeconds": 0.25,
+    "audioOnsetDb": 12,
+    "transcription": true
+  },
+  "clips": {
+    "count": 20,
+    "minDurationSeconds": 10,
+    "preferredMinSeconds": 15,
+    "preferredMaxSeconds": 35,
+    "maxDurationSeconds": 60,
+    "minEntertainmentScore": 6,
+    "maxOverlapRatio": 0.15,
+    "boundarySnapSeconds": 1.5
+  },
+  "render": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "crf": 20,
+    "preset": "medium",
+    "concurrency": 2,
+    "threadsPerJob": 0,
+    "compositionMode": "blur",
+    "cropPositionX": 0.5,
+    "blurForegroundWidth": 1,
+    "blurStrength": 30,
+    "smartCropMinConfidence": 0.55,
+    "smartCropMaxPanPerSecond": 0.25,
+    "durationToleranceSeconds": 0.25,
+    "maxRetries": 1
+  },
+  "audio": {
+    "keepOriginal": true,
+    "normalize": true,
+    "targetLufs": -14,
+    "volume": 1,
+    "fadeInSeconds": 0.3,
+    "fadeOutSeconds": 0.6,
+    "backgroundMusicPath": "",
+    "backgroundMusicVolume": 0.25,
+    "ducking": true,
+    "bitrateKbps": 192
+  },
+  "text": {
+    "introText": "",
+    "endingText": "",
+    "aiCaptions": false,
+    "subtitles": false,
+    "whisperExecutable": "whisper-cli",
+    "whisperModelPath": "",
+    "style": {
+      "fontFamily": "Helvetica Neue, Helvetica, Arial, sans-serif",
+      "fontSize": 64,
+      "fontWeight": "bold",
+      "color": "#FFFFFF",
+      "outlineColor": "#000000",
+      "outlineWidth": 6,
+      "shadow": true,
+      "positionY": 0.12
+    }
+  },
+  "storage": {
+    "projectsDir": "projects",
+    "exportsDir": "exports",
+    "dataDir": "data",
+    "importMode": "link",
+    "minFreeDiskGb": 3,
+    "cleanupFramesAfterAnalysis": false
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 4317,
+    "analysisConcurrency": 1,
+    "allowedImportRoots": []
+  },
+  "ffmpegPath": "ffmpeg",
+  "ffprobePath": "ffprobe",
+  "logLevel": "info"
+}
