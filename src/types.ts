@@ -156,6 +156,38 @@ export interface FocusPoint {
 
 export type CandidateStatus = 'pending' | 'approved' | 'rejected';
 
+export type FxEventType = 'zoom' | 'shake' | 'flash' | 'glitch' | 'sfx' | 'voice';
+export type VoiceEffect = 'chipmunk' | 'deep' | 'echo' | 'robot';
+export const FX_EVENT_TYPES: readonly FxEventType[] = ['zoom', 'shake', 'flash', 'glitch', 'sfx', 'voice'];
+export const VOICE_EFFECTS: readonly VoiceEffect[] = ['chipmunk', 'deep', 'echo', 'robot'];
+
+/** One timed effect. Times are absolute seconds in the source video (stable when the clip is trimmed). */
+export interface FxEvent {
+  type: FxEventType;
+  t: number;
+  /** Seconds (zoom/shake/glitch/voice); ignored for flash and sfx. */
+  duration: number;
+  /** 0..1, default 0.6. */
+  strength?: number;
+  /** Sound effect name (sfx). */
+  sound?: string;
+  /** Voice effect (voice). */
+  voice?: VoiceEffect;
+}
+
+/** Fun-effects plan of a clip: written by the AI director or edited by hand. */
+export interface ClipFx {
+  source: 'auto' | 'manual';
+  /** Hook title shown in the first seconds; per reel language ("en", "hi", or "default"). */
+  hook?: Record<string, string>;
+  /** Slow-motion replay of [start, end] (absolute source seconds), inserted right after `end`. */
+  replay?: { start: number; end: number } | null;
+  events: FxEvent[];
+  /** Settings signature an automatic plan was generated for (re-planned when it changes). */
+  signature?: string;
+  generatedAt?: string;
+}
+
 export interface Candidate {
   id: string;
   start: number;
@@ -192,6 +224,8 @@ export interface Candidate {
   edited?: boolean;
   parentId?: string;
   notes?: string[];
+  /** Fun effects for this moment (hook title, replay, zooms, sound effects…). */
+  fx?: ClipFx;
 }
 
 export type StageName =
@@ -276,6 +310,35 @@ export interface ClipRecord {
   /** Hash of everything that affects the output; unchanged key = reuse completed render. */
   renderKey?: string;
   warnings?: string[];
+  /** Effects applied in the render (summary for the UI). */
+  fxSummary?: string[];
+  /** Output length, which differs from end-start when a replay was inserted. */
+  outputSeconds?: number;
+  /** Best few seconds of the reel (output timeline), used for GIF export. */
+  highlight?: { start: number; end: number };
+}
+
+/** Webcam overlay position in the source (fractions of width/height). */
+export interface FacecamRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface MontageRecord {
+  id: string;
+  orientation: 'vertical' | 'horizontal';
+  lang: string | null;
+  clipIds: string[];
+  transition: string;
+  status: 'queued' | 'rendering' | 'completed' | 'failed';
+  progress: number;
+  file?: string;
+  durationSeconds?: number;
+  sizeBytes?: number;
+  createdAt: string;
+  error?: string;
 }
 
 export type ProjectStatus = 'created' | 'queued' | 'analyzing' | 'analyzed' | 'rendering' | 'completed' | 'failed' | 'cancelled';
@@ -299,5 +362,10 @@ export interface Project {
   error?: Record<string, unknown>;
   /** Game shown in the recording: user-provided hint or detected by pass 1. */
   game?: string;
+  /** Webcam overlay: null = checked, none found; undefined = not checked yet. */
+  facecam?: { rect: FacecamRect | null; source: 'auto' | 'manual'; checkedAt: string };
+  montages?: MontageRecord[];
+  /** Import from a link (yt-dlp). */
+  download?: { url: string; status: 'queued' | 'downloading' | 'done' | 'failed'; progress: number; error?: string; title?: string };
   claudeUsage?: { requests: number; failures: number; inputTokens: number; outputTokens: number; costUsdEquivalent: number };
 }

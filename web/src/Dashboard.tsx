@@ -10,6 +10,7 @@ function ImportPanel({ onCreated }: { onCreated: () => void }) {
   const [mode, setMode] = useState<'blur' | 'crop' | 'smart'>('blur');
   const [busy, setBusy] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [link, setLink] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const settings = () => ({
@@ -25,6 +26,21 @@ function ImportPanel({ onCreated }: { onCreated: () => void }) {
       toast(`Imported "${p.name}" — analysis queued`, 'ok');
       setPath('');
       setName('');
+      onCreated();
+      window.location.hash = `#/project/${p.id}`;
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const importLink = async () => {
+    setBusy(true);
+    try {
+      const p = await api.importUrl({ url: link.trim(), name: name || undefined, settings: settings() });
+      toast('Downloading — analysis starts automatically when the download finishes', 'ok');
+      setLink('');
       onCreated();
       window.location.hash = `#/project/${p.id}`;
     } catch (e) {
@@ -65,6 +81,13 @@ function ImportPanel({ onCreated }: { onCreated: () => void }) {
           Upload file…
         </button>
         <input ref={fileRef} type="file" accept="video/*,.mkv,.avi" hidden onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
+      </div>
+      <div className="form-row">
+        <label className="grow">
+          <span>…or a link to your stream / VOD (YouTube, Twitch, Kick…)</span>
+          <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://www.youtube.com/watch?v=…" onKeyDown={(e) => e.key === 'Enter' && link && void importLink()} />
+        </label>
+        <button className="btn" disabled={!/^https?:\/\/\S+\.\S+/.test(link.trim()) || busy} onClick={() => void importLink()}>Download & analyze</button>
       </div>
       {uploadPct !== null && (
         <div className="upload-progress">
@@ -120,6 +143,9 @@ function ProjectCard({ p }: { p: ProjectListItem }) {
         )}
         {p.game && <> · {p.game}</>}
       </div>
+      {p.download && p.download.status !== 'done' && (
+        <div className="small muted">{p.download.status === 'failed' ? <span className="danger-text">Download failed: {p.download.error}</span> : `Downloading from ${new URL(p.download.url).hostname}…`}</div>
+      )}
       {job && (job.status === 'running' || job.status === 'queued') && (
         <div className="job-line">
           <ProgressBar value={job.progress} />

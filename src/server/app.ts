@@ -12,7 +12,11 @@ import { Auth } from './auth.js';
 import { projectSettingsSchema } from '../config/schema.js';
 import { AppError, NotFoundError, ValidationError, errorToJSON } from '../util/errors.js';
 import { ensureDir, exists, readJsonOr, writeJsonAtomic, assertDiskSpace } from '../util/fsx.js';
-import { ANALYSIS_STAGES, MOMENT_CATEGORIES, type AnalysisFrame, type Candidate, type StageName } from '../types.js';
+import { ANALYSIS_STAGES, FX_EVENT_TYPES, MOMENT_CATEGORIES, VOICE_EFFECTS, type AnalysisFrame, type Candidate, type ClipFx, type StageName } from '../types.js';
+import { TRANSITIONS } from '../render/montage.js';
+import { makeGif } from '../render/gif.js';
+import { sfxName } from '../fx/sfx.js';
+import { clampRect } from '../fx/facecam.js';
 import { runFfmpeg, fmtSec } from '../media/ffmpeg.js';
 import { isSupportedVideo } from '../media/probe.js';
 import { round3 } from '../util/time.js';
@@ -29,6 +33,20 @@ function parse<T>(schema: z.ZodType<T>, data: unknown): T {
   if (!r.success) throw new ValidationError(r.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; '));
   return r.data;
 }
+
+const fxEventSchema = z.object({
+  type: z.enum(FX_EVENT_TYPES as [string, ...string[]]),
+  t: z.number().min(0),
+  duration: z.number().min(0).max(10).default(0.6),
+  strength: z.number().min(0).max(1).optional(),
+  sound: z.string().regex(/^[a-z0-9-]{1,40}$/).optional(),
+  voice: z.enum(VOICE_EFFECTS as [string, ...string[]]).optional(),
+});
+const clipFxSchema = z.object({
+  hook: z.record(z.string().regex(/^([a-z]{2,3}|default|orig)$/), z.string().max(80)).optional(),
+  replay: z.object({ start: z.number().min(0), end: z.number().min(0) }).nullable().optional(),
+  events: z.array(fxEventSchema).max(16),
+});
 
 const idParam = (req: Request, name = 'id'): string => {
   const v = req.params[name];
@@ -123,6 +141,11 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
     res.status(201).json(p);
   }));
 
+  api.post('/projects/from-url', h(async (req, res) => {
+    const body = parse(z.object({ url: z.string().min(8).max(2000), name: z.string().max(100).optional(), settings: projectSettingsSchema.optional() }), req.body);
+    res.status(201).json(await svc.createProjectFromUrl(body));
+  }));
+
   // Streaming multipart upload (never buffers the whole file in memory).
   api.post('/projects/upload', h(async (req, res) => {
     const uploadDir = path.join(svc.cfg.storage.dataDir, 'uploads');
@@ -173,9 +196,11 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
 
   api.patch('/projects/:id', h(async (req, res) => {
     const id = idParam(req);
-    const body = parse(z.object({ name: z.string().min(1).max(100).optional(), settings: projectSettingsSchema.optional() }), req.body);
+    const rect = z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0.03).max(1), h: z.number().min(0.03).max(1) });
+    const body = parse(z.object({ name: z.string().min(1).max(100).optional(), settings: projectSettingsSchema.optional(), facecam: rect.nullable().optional() }), req.body);
     const p = await svc.store.update(id, (d) => {
       if (body.name) d.name = body.name;
+      if (body.facecam !== undefined) d.facecam = { rect: body.facecam ? clampRect(body.facecam) : null, source: 'manual', checkedAt: new Date().toISOString() };
       if (body.settings) {
         d.settings = {
           analysis: { ...d.settings.analysis, ...body.settings.analysis },
@@ -183,6 +208,7 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
           render: { ...d.settings.render, ...body.settings.render },
           audio: { ...d.settings.audio, ...body.settings.audio },
           text: { ...d.settings.text, ...body.settings.text },
+          fx: { ...d.settings.fx, ...body.settings.fx },
         };
       }
     });
@@ -195,6 +221,7 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
     svc.store.get(id);
     await svc.queue.cancelProject(id);
     await svc.store.delete(id);
+    await fsp.rm(svc.downloadsDir(id), { recursive: true, force: true });
     res.json({ ok: true });
   }));
 
@@ -317,6 +344,95 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
     res.status(201).json(c);
   }));
 
+  // ── Fun effects of a moment ──
+  const saveCandidateFx = async (id: string, cid: string, fx: ClipFx | undefined) => {
+    const paths = svc.store.paths(id);
+    const list = await readJsonOr<Candidate[]>(paths.candidatesFile, []);
+    const c = list.find((x) => x.id === cid);
+    if (!c) throw new NotFoundError('Moment not found');
+    if (fx) c.fx = fx;
+    else delete c.fx;
+    await writeJsonAtomic(paths.candidatesFile, list);
+    return c;
+  };
+
+  api.put('/projects/:id/candidates/:cid/fx', h(async (req, res) => {
+    const id = idParam(req);
+    const cid = idParam(req, 'cid');
+    svc.store.get(id);
+    const body = parse(clipFxSchema, req.body);
+    const fx: ClipFx = { source: 'manual', hook: body.hook && Object.keys(body.hook).length ? body.hook : undefined, replay: body.replay ?? null, events: body.events as ClipFx['events'], generatedAt: new Date().toISOString() };
+    res.json(await saveCandidateFx(id, cid, fx));
+  }));
+
+  // Back to automatic: the AI plans the effects again on the next render.
+  api.delete('/projects/:id/candidates/:cid/fx', h(async (req, res) => {
+    res.json(await saveCandidateFx(idParam(req), idParam(req, 'cid'), undefined));
+  }));
+
+  api.post('/projects/:id/candidates/:cid/fx/auto', h(async (req, res) => {
+    res.json(await svc.planFxNow(idParam(req), idParam(req, 'cid')));
+  }));
+
+  api.post('/projects/:id/facecam/detect', h(async (req, res) => {
+    res.json(await svc.detectFacecamNow(idParam(req)));
+  }));
+
+  // ── Sound effects library ──
+  api.get('/fx/sounds', h(async (_req, res) => {
+    res.json((await svc.sfxLibrary()).map((s) => ({ name: s.name, description: s.description, builtin: s.builtin })));
+  }));
+
+  api.get('/fx/sounds/:name', h(async (req, res) => {
+    const name = idParam(req, 'name');
+    const s = (await svc.sfxLibrary()).find((x) => x.name === name);
+    if (!s) throw new NotFoundError('Sound not found');
+    res.sendFile(s.file);
+  }));
+
+  api.post('/fx/sounds', h(async (req, res) => {
+    const dir = svc.cfg.fx.sfxDir;
+    await ensureDir(dir);
+    const saved = await new Promise<string>((resolve, reject) => {
+      const bb = Busboy({ headers: req.headers, limits: { files: 1, fileSize: 15 * 1024 * 1024 } });
+      let done: Promise<string> | null = null;
+      let invalid: Error | null = null;
+      bb.on('file', (_n, file, info) => {
+        const ext = path.extname(info.filename || '').toLowerCase();
+        const name = sfxName(info.filename || '');
+        if (!['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac', '.opus'].includes(ext) || !name) {
+          // Drain the upload, then answer (replying mid-upload breaks the client's connection).
+          invalid = new ValidationError('Upload an audio file (mp3, wav, ogg, m4a, aac, flac, opus)');
+          file.resume();
+          return;
+        }
+        const target = path.join(dir, `${name}${ext}`);
+        const tmp = `${target}.tmp`;
+        const ws = fs.createWriteStream(tmp);
+        done = new Promise((r, j) => {
+          ws.on('finish', () => {
+            if ((file as unknown as { truncated?: boolean }).truncated) return j(new ValidationError('Sound files must be under 15 MB'));
+            fsp.rename(tmp, target).then(() => r(name), j);
+          });
+          ws.on('error', j);
+        });
+        file.pipe(ws);
+      });
+      bb.on('error', reject);
+      bb.on('close', () => (invalid ? reject(invalid) : done ? done.then(resolve, reject) : reject(new ValidationError('No file uploaded'))));
+      req.pipe(bb);
+    });
+    res.status(201).json({ name: saved });
+  }));
+
+  api.delete('/fx/sounds/:name', h(async (req, res) => {
+    const name = idParam(req, 'name');
+    const s = (await svc.sfxLibrary()).find((x) => x.name === name);
+    if (!s || s.builtin) throw new NotFoundError('Only your own sounds can be deleted');
+    await fsp.rm(s.file, { force: true });
+    res.json({ ok: true });
+  }));
+
   // Low-res horizontal preview of a moment (rendered on demand, cached).
   api.get('/projects/:id/candidates/:cid/preview', h(async (req, res) => {
     const id = idParam(req);
@@ -403,6 +519,61 @@ export function createApp(svc: Services, opts: { staticDir?: string } = {}): exp
     const sub = clip.subtitleFiles?.find((f) => f.lang === lang);
     if (!sub) throw new NotFoundError('No subtitles in that language for this clip');
     res.download(svc.store.paths(id).abs(sub.file), `${project.id}-${clip.id}.${lang}.srt`);
+  }));
+
+  // GIF of the clip's best seconds (made on demand, cached until the clip is re-rendered).
+  api.get('/projects/:id/clips/:clipId/gif', h(async (req, res) => {
+    const id = idParam(req);
+    const { abs, clip, project } = clipFile(id, idParam(req, 'clipId'), 'file', req.query.lang);
+    const lang = typeof req.query.lang === 'string' && /^[\w+]+$/.test(req.query.lang) ? req.query.lang : 'main';
+    const out = path.join(path.dirname(abs), `${clip.id}.${lang}.gif`);
+    if (!(await exists(out))) {
+      const hl = clip.highlight ?? { start: 0, end: Math.min(6, clip.end - clip.start) };
+      await makeGif({ tools: svc.tools, input: abs, start: hl.start, end: hl.end, outFile: out, workDir: path.join(svc.store.paths(id).workDir, `gif-${clip.id}`) });
+    }
+    res.download(out, `${project.id}-${clip.id}${lang === 'main' ? '' : `-${lang}`}.gif`);
+  }));
+
+  // ── Montages (best-of compilations) ──
+  api.post('/projects/:id/montages', h(async (req, res) => {
+    const id = idParam(req);
+    const body = parse(
+      z.object({
+        clipIds: z.array(z.string().regex(/^clip-\d{3,}$/)).max(60).optional(),
+        orientation: z.enum(['vertical', 'horizontal']).default('vertical'),
+        lang: z.string().regex(/^[a-z+]{2,8}$/).nullable().optional(),
+        transition: z.enum(TRANSITIONS).default('smoothleft'),
+      }),
+      req.body ?? {},
+    );
+    res.status(202).json(await svc.createMontage(id, { ...body, orientation: body.orientation ?? 'vertical', transition: body.transition ?? 'smoothleft' }));
+  }));
+
+  const montageFile = (id: string, mid: string) => {
+    const p = svc.store.get(id);
+    const m = p.montages?.find((x) => x.id === mid);
+    if (!m?.file) throw new NotFoundError('Montage not available');
+    return { abs: svc.store.paths(id).abs(m.file), m, p };
+  };
+  api.get('/projects/:id/montages/:mid/video', h(async (req, res) => {
+    res.sendFile(montageFile(idParam(req), idParam(req, 'mid')).abs);
+  }));
+  api.get('/projects/:id/montages/:mid/download', h(async (req, res) => {
+    const { abs, p } = montageFile(idParam(req), idParam(req, 'mid'));
+    res.download(abs, `${p.id}-${path.basename(abs)}`);
+  }));
+  api.delete('/projects/:id/montages/:mid', h(async (req, res) => {
+    const id = idParam(req);
+    const mid = idParam(req, 'mid');
+    const p = svc.store.get(id);
+    const m = p.montages?.find((x) => x.id === mid);
+    if (!m) throw new NotFoundError('Montage not found');
+    if (m.status === 'rendering' || m.status === 'queued') throw new ValidationError('Montage is still rendering');
+    if (m.file) await fsp.rm(svc.store.paths(id).abs(m.file), { force: true });
+    await svc.store.update(id, (d) => {
+      d.montages = (d.montages ?? []).filter((x) => x.id !== mid);
+    });
+    res.json({ ok: true });
   }));
 
   api.delete('/projects/:id/clips/:clipId', h(async (req, res) => {

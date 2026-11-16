@@ -1,5 +1,71 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { CancelledError, ProcessError } from './errors.js';
+
+export interface ResolvedCommand {
+  command: string;
+  /** Arguments to put before the caller's arguments (e.g. the JS entry of an npm shim). */
+  prefixArgs: string[];
+}
+
+/**
+ * Windows: executables are found via PATH + PATHEXT, but Node cannot spawn
+ * `.cmd`/`.bat` files without a shell (which we never use). npm-installed CLIs
+ * (e.g. `claude.cmd`) are thin shims around a JS file, so we run that file with
+ * this Node binary instead. Returns null when nothing usable is found.
+ */
+export function resolveWindowsCommand(
+  command: string,
+  env: { PATH?: string; PATHEXT?: string },
+  io: { isFile: (p: string) => boolean; readFile: (p: string) => string; nodePath: string } = {
+    isFile: (p) => {
+      try {
+        return fs.statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    },
+    readFile: (p) => fs.readFileSync(p, 'utf8'),
+    nodePath: process.execPath,
+  },
+): ResolvedCommand | null {
+  const exts = (env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean).map((e) => e.toLowerCase());
+  const hasExt = /\.[a-z0-9]+$/i.test(command);
+  const isPath = /[\\/]/.test(command);
+  const dirs = isPath ? [''] : (env.PATH ?? '').split(';').filter(Boolean);
+  for (const dir of dirs) {
+    const base = isPath ? command : path.win32.join(dir, command);
+    const candidates = hasExt ? [base] : [...exts.filter((e) => e === '.exe' || e === '.com').map((e) => base + e), ...exts.filter((e) => e !== '.exe' && e !== '.com').map((e) => base + e)];
+    for (const c of candidates) {
+      if (!io.isFile(c)) continue;
+      if (/\.(exe|com)$/i.test(c)) return { command: c, prefixArgs: [] };
+      if (/\.(cmd|bat)$/i.test(c)) {
+        // npm shim: ... "%dp0%\node_modules\pkg\cli.js" %*   (or "%~dp0\...")
+        const text = io.readFile(c);
+        const m = /"%~?dp0%?\\([^"]+?\.(?:c|m)?js)"/i.exec(text);
+        if (m) {
+          const script = path.win32.join(path.win32.dirname(c), m[1]!);
+          if (io.isFile(script)) return { command: io.nodePath, prefixArgs: [script] };
+        }
+      }
+    }
+    if (isPath) break;
+  }
+  return null;
+}
+
+const resolveCache = new Map<string, ResolvedCommand>();
+
+/** Resolve how to spawn `command` on this platform (identity outside Windows). */
+export function resolveCommand(command: string): ResolvedCommand {
+  if (process.platform !== 'win32') return { command, prefixArgs: [] };
+  const hit = resolveCache.get(command);
+  if (hit) return hit;
+  const r = resolveWindowsCommand(command, { PATH: process.env.PATH ?? process.env.Path, PATHEXT: process.env.PATHEXT }) ?? { command, prefixArgs: [] };
+  resolveCache.set(command, r);
+  return r;
+}
 
 export interface RunOptions {
   /** Abort → SIGTERM, then SIGKILL after `killGraceMs`. */
@@ -76,7 +142,8 @@ export function runProcess(command: string, args: readonly string[], opts: RunOp
 
   return new Promise<RunResult>((resolve, reject) => {
     const started = Date.now();
-    const cp = spawn(command, [...args], {
+    const resolved = resolveCommand(command);
+    const cp = spawn(resolved.command, [...resolved.prefixArgs, ...args], {
       cwd: opts.cwd,
       env: opts.env ?? process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -184,7 +251,8 @@ export function spawnStreaming(
   opts: { signal?: AbortSignal; label?: string } = {},
 ): { child: ChildProcess; done: Promise<{ exitCode: number; stderr: string }> } {
   const label = opts.label ?? command;
-  const child = spawn(command, [...args], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+  const resolved = resolveCommand(command);
+  const child = spawn(resolved.command, [...resolved.prefixArgs, ...args], { stdio: ['ignore', 'pipe', 'pipe'], shell: false, windowsHide: true });
   live.add(child);
   const stderrBuf = new TailBuffer(32 * 1024);
   child.stderr!.on('data', (c: Buffer) => stderrBuf.push(c));

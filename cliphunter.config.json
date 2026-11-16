@@ -58,7 +58,34 @@
     "smartCropMinConfidence": 0.55,
     "smartCropMaxPanPerSecond": 0.25,
     "durationToleranceSeconds": 0.25,
-    "maxRetries": 1
+    "maxRetries": 1,
+    "videoEncoder": "auto"
+  },
+  "fx": {
+    "enabled": true,
+    "auto": true,
+    "intensity": "normal",
+    "hookTitle": true,
+    "hookSeconds": 2.8,
+    "replay": true,
+    "replaySpeed": 0.5,
+    "replayMaxSeconds": 3,
+    "replaySmoothing": "blend",
+    "zoom": true,
+    "shake": true,
+    "flash": true,
+    "glitch": true,
+    "sfx": true,
+    "sfxVolume": 0.8,
+    "sfxDir": "sfx",
+    "voice": true,
+    "facecam": "auto",
+    "facecamHeight": 0.34
+  },
+  "download": {
+    "ytdlpExecutable": "yt-dlp",
+    "maxHeight": 1080,
+    "cookiesFromBrowser": ""
   },
   "audio": {
     "keepOriginal": true,
@@ -70,7 +97,10 @@
     "backgroundMusicPath": "",
     "backgroundMusicVolume": 0.25,
     "ducking": true,
-    "bitrateKbps": 192
+    "bitrateKbps": 192,
+    "denoise": "off",
+    "musicRemoval": "off",
+    "demucsExecutable": "demucs"
   },
   "text": {
     "introText": "",
@@ -88,7 +118,9 @@
       "outlineWidth": 6,
       "shadow": true,
       "positionY": 0.12
-    }
+    },
+    "captionStyle": "karaoke",
+    "highlightColor": "#FFE34D"
   },
   "storage": {
     "projectsDir": "projects",

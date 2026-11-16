@@ -213,7 +213,7 @@ export async function transcribeSegment(o: {
   let utterances: Array<{ start: number; end: number }> | null = null;
   if (o.whisper.vadModelPath && fs.existsSync(o.whisper.vadModelPath)) {
     try {
-      const vadBin = path.join(path.dirname(o.whisper.executable), 'whisper-vad-speech-segments');
+      const vadBin = path.join(path.dirname(o.whisper.executable), `whisper-vad-speech-segments${process.platform === 'win32' ? '.exe' : ''}`);
       const r = await runProcess(fs.existsSync(vadBin) ? vadBin : 'whisper-vad-speech-segments', ['-vm', o.whisper.vadModelPath, '-f', wav], { signal: o.signal, timeoutMs: 120_000, label: 'whisper VAD' });
       utterances = groupUtterances(parseVadSegments(r.stdout), o.duration);
     } catch (err) {

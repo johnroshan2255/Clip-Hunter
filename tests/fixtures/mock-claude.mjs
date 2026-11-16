@@ -41,7 +41,31 @@ process.stdin.on('end', () => {
   const start = m ? Number(m[1]) : 0;
   const end = m ? Number(m[2]) : 60;
   let structured;
-  if (schemaArg.includes('verdict')) {
+  let schema = {};
+  try {
+    schema = JSON.parse(schemaArg);
+  } catch {
+    /* not JSON */
+  }
+  if (schema.properties?.present) {
+    // Facecam detection: the synthetic fixture has no webcam.
+    structured = { present: false, x: 0, y: 0, w: 0, h: 0, confidence: 0.9 };
+  } else if (schema.properties?.events && schema.properties?.replay) {
+    // Effects plan: hook per requested language, a replay, a zoom + sound on the "impact".
+    const langs = schema.properties.hook?.required ?? [];
+    const sounds = schema.properties.events.items.properties.sound?.enum ?? [];
+    structured = {
+      hook: Object.fromEntries(langs.map((l) => [l, l === 'hi' ? 'ये देखो क्या हुआ' : 'Mock hook: watch this 🔥'])),
+      replay: { use: true, start: 2, end: 4.5 },
+      events: [
+        { type: 'zoom', t: 3, duration: 0.8, strength: 0.7 },
+        { type: 'flash', t: 3.1, duration: 0, strength: 0.5 },
+        ...(sounds.includes('boom') ? [{ type: 'sfx', t: 3.1, duration: 0, strength: 0.6, sound: 'boom' }] : []),
+        { type: 'shake', t: 3.1, duration: 0.5, strength: 0.6 },
+        { type: 'zoom', t: 999, duration: 1, strength: 0.5 },
+      ],
+    };
+  } else if (schemaArg.includes('verdict')) {
     // Inspection: one refined moment centred in the window.
     const mid = (start + end) / 2;
     const s = Math.max(start, mid - 9);

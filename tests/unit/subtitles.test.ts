@@ -101,7 +101,8 @@ describe('translation validation and fonts', () => {
     expect(hasDevanagari('भाई')).toBe(true);
     expect(hasDevanagari('bro')).toBe(false);
     expect(fontFamilyFor('भाई', 'Helvetica')).toMatch(/^Kohinoor Devanagari/);
-    expect(fontFamilyFor('bro', 'Helvetica')).toBe('Helvetica');
+    expect(fontFamilyFor('bro', 'Helvetica')).toMatch(/^Helvetica, Arial/);
+    expect(fontFamilyFor('भाई', 'Helvetica')).toContain('Nirmala UI');
     expect(languageName('hi')).toBe('Hindi');
   });
 });

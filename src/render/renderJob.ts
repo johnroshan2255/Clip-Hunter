@@ -1,15 +1,32 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { AppConfig } from '../config/schema.js';
-import type { Candidate, ClipRecord, VideoMetadata } from '../types.js';
+import type { AnalysisFrame, AudioAnalysis, Candidate, ClipFx, ClipRecord, VideoMetadata } from '../types.js';
 import type { FfmpegTools } from '../media/ffmpeg.js';
 import type { ProjectStore } from '../pipeline/projectStore.js';
-import { readJson, readJsonOr, assertDiskSpace, exists } from '../util/fsx.js';
+import { readJson, readJsonOr, assertDiskSpace, exists, writeJsonAtomic, ensureDir } from '../util/fsx.js';
 import { Semaphore } from '../util/concurrency.js';
 import { AppError, errorToJSON, isCancelled } from '../util/errors.js';
 import type { Logger } from '../util/logger.js';
 import { renderClip, renderKey } from './renderClip.js';
 import type { ClaudeCli } from '../ai/claudeCli.js';
+import type { AppConfig as Cfg } from '../config/schema.js';
+import { loadSfxLibrary, type SoundEffect } from '../fx/sfx.js';
+import { fxSignature } from '../fx/plan.js';
+import { heuristicPlan, planEffectsWithClaude } from '../fx/director.js';
+import { detectFacecam } from '../fx/facecam.js';
+
+/** Languages the hook title is written in, matching the reels that will be rendered. */
+export function hookLanguages(cfg: Cfg): string[] {
+  if (!cfg.text.subtitles) return ['default'];
+  const langs = cfg.text.subtitleLanguages.filter((l) => l !== 'original');
+  return langs.length ? langs : ['default'];
+}
+
+/** Everything besides config that changes a clip's output. */
+export function renderExtra(cand: Candidate | undefined, facecam: unknown, sfx: SoundEffect[]): unknown {
+  return { fx: cand?.fx ? { ...cand.fx, generatedAt: undefined } : null, facecam: facecam ?? null, sfx: sfx.map((s) => s.name).join(',') };
+}
 
 export interface RenderJobParams {
   /** Only (re-)render these clip ids. */
@@ -83,13 +100,92 @@ export async function runRenderJob(o: {
   const candById = new Map(candidates.map((c) => [c.id, c]));
   const sourceId = `${md.sizeBytes}:${md.durationSeconds}`;
 
+  // ── Fun effects: sound library + facecam detection (once per project) ──
+  let sfxLibrary: SoundEffect[] = [];
+  if (cfg.fx.enabled && cfg.fx.sfx) {
+    try {
+      sfxLibrary = await loadSfxLibrary(o.tools, cfg.storage.dataDir, cfg.fx.sfxDir);
+    } catch (err) {
+      o.logger.warn('Sound effects unavailable', { err });
+    }
+  }
+  if (cfg.fx.enabled && cfg.fx.facecam !== 'off' && project.facecam === undefined && o.claude) {
+    try {
+      const idx = await readJsonOr<{ frames: AnalysisFrame[] } | null>(paths.framesIndexFile, null);
+      const frames = idx?.frames ?? [];
+      if (frames.length >= 3) {
+        const pick = [0.2, 0.5, 0.8].map((f) => paths.abs(frames[Math.floor(frames.length * f)]!.file));
+        const work = path.join(paths.workDir, 'facecam');
+        await ensureDir(work);
+        o.onProgress(0, 'Checking for a webcam overlay');
+        const rect = await detectFacecam(o.claude, pick, work, o.signal);
+        await store.update(projectId, (p) => {
+          p.facecam = { rect, source: 'auto', checkedAt: new Date().toISOString() };
+        });
+        o.logger.info(rect ? 'Webcam overlay detected; using facecam layout' : 'No webcam overlay detected', { rect });
+      }
+    } catch (err) {
+      if (isCancelled(err)) throw err;
+      o.logger.warn('Facecam detection failed; using the normal layout', { err });
+    }
+  }
+  const facecam = () => store.get(projectId).facecam?.rect ?? null;
+  const keyFor = (c: { start: number; end: number; candidateId: string }) => renderKey(cfg, c.start, c.end, sourceId, renderExtra(candById.get(c.candidateId), cfg.fx.enabled && cfg.fx.facecam !== 'off' ? facecam() : null, sfxLibrary));
+
+  // Effect plans are saved on the moments (so they can be edited); serialise writes.
+  let candWrite = Promise.resolve();
+  const saveFx = (candidateId: string, fx: ClipFx) => {
+    candWrite = candWrite.then(async () => {
+      const list = await readJsonOr<Candidate[]>(paths.candidatesFile, []);
+      const c = list.find((x) => x.id === candidateId);
+      if (!c || c.fx?.source === 'manual') return;
+      c.fx = fx;
+      await writeJsonAtomic(paths.candidatesFile, list);
+    }).catch((err) => o.logger.warn('Could not save effects plan', { err }));
+    return candWrite;
+  };
+  const audioAnalysis = await readJsonOr<AudioAnalysis | null>(paths.audioAnalysisFile, null);
+  const signature = fxSignature(cfg.fx, hookLanguages(cfg));
+  const planFor = (cand: Candidate, rec: ClipRecord) => async (transcript: Array<{ start: number; end: number; text: string; lang?: string }>): Promise<ClipFx | undefined> => {
+    if (!cfg.fx.enabled) return undefined;
+    const current = cand.fx;
+    if (current?.source === 'manual') return current;
+    if (current?.source === 'auto' && current.signature === signature) return current;
+    if (!cfg.fx.auto) return current;
+    const input = {
+      candidate: cand,
+      start: rec.start,
+      end: rec.end,
+      transcript,
+      audioEvents: audioAnalysis?.events,
+      sounds: sfxLibrary.map((s) => ({ name: s.name, description: s.description })),
+      cfg: cfg.fx,
+      hookLanguages: hookLanguages(cfg),
+      hindiScript: cfg.text.hindiScript,
+      game: project.game || cfg.analysis.gameTitle || undefined,
+      signature,
+    };
+    let fx: ClipFx;
+    try {
+      if (!o.claude) throw new Error('Claude CLI not available');
+      fx = await planEffectsWithClaude(o.claude, input, o.signal);
+    } catch (err) {
+      if (isCancelled(err)) throw err;
+      o.logger.warn('AI effects planning failed; using rule-based effects', { clip: rec.id, err });
+      fx = heuristicPlan(input);
+    }
+    cand.fx = fx;
+    await saveFx(cand.id, fx);
+    return fx;
+  };
+
   // Sync clip records and decide what needs rendering.
   let todo: string[] = [];
   await store.update(projectId, (p) => {
     p.status = 'rendering';
     p.clips = syncClipRecords(p.clips, selected, cfg.render.compositionMode);
     for (const c of p.clips) {
-      const key = renderKey(cfg, c.start, c.end, sourceId);
+      const key = keyFor(c);
       const requested = !o.params.clipIds || o.params.clipIds.includes(c.id);
       const upToDate = c.status === 'completed' && c.renderKey === key && !o.params.force;
       if (requested && !upToDate && candById.has(c.candidateId)) {
@@ -133,7 +229,6 @@ export async function runRenderJob(o: {
         const cand = candById.get(rec.candidateId)!;
         const outFile = path.join(paths.clipsDir, `${id}.mp4`);
         const thumb = path.join(paths.thumbnailsDir, `${id}.jpg`);
-        const key = renderKey(cfg, rec.start, rec.end, sourceId);
         let lastErr: Record<string, unknown> | undefined;
         for (let attempt = 1; attempt <= cfg.render.maxRetries + 1; attempt++) {
           if (o.signal.aborted) break;
@@ -156,6 +251,9 @@ export async function runRenderJob(o: {
               logger: o.logger,
               claude: o.claude,
               game: project.game || cfg.analysis.gameTitle || undefined,
+              sfxLibrary,
+              facecam: cfg.fx.enabled && cfg.fx.facecam !== 'off' ? facecam() : null,
+              planFx: planFor(cand, rec),
               onProgress: (f) => {
                 progress.set(id, f);
                 if (f - lastP > 0.05) {
@@ -186,11 +284,15 @@ export async function runRenderJob(o: {
               subtitles: r.subtitles,
               spokenLanguage: r.spokenLanguage,
               subtitleFiles: r.subtitleFiles.map((f) => ({ lang: f.lang, file: paths.rel(f.file) })),
-              renderKey: key,
+              // Keyed on the effects actually used (an automatic plan may have been created during this render).
+              renderKey: keyFor(rec),
               warnings: r.validation.warnings,
+              fxSummary: r.fxSummary,
+              outputSeconds: r.outputSeconds,
+              highlight: r.highlight,
               error: undefined,
             });
-            o.logger.info('Clip rendered and validated', { clip: id, ms: r.renderMs, mode: r.compositionUsed, sizeMb: Math.round(r.validation.sizeBytes / 1e5) / 10, warnings: r.validation.warnings });
+            o.logger.info('Clip rendered and validated', { clip: id, ms: r.renderMs, mode: r.compositionUsed, encoder: r.encoder, fx: r.fxSummary, sizeMb: Math.round(r.validation.sizeBytes / 1e5) / 10, warnings: r.validation.warnings });
             report(`${completed}/${total} clips done`);
             return;
           } catch (err) {
@@ -223,6 +325,7 @@ export async function runRenderJob(o: {
     throw err;
   });
 
+  await candWrite;
   await fsp.rm(paths.workDir, { recursive: true, force: true });
   await store.update(projectId, (p) => {
     p.counts.clipsCompleted = p.clips.filter((c) => c.status === 'completed').length;

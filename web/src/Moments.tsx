@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, fmtTime, parseTime, urls, type Candidate, type ProjectDetail } from './api';
 import { Modal, ScoreBadge, StatusPill, toast, toastError } from './ui';
+import { FxEditor } from './FxEditor';
 
 type Filter = 'all' | 'selected' | 'approved' | 'rejected';
 
@@ -25,7 +26,7 @@ function TimeInput({ value, onCommit, disabled }: { value: number; onCommit: (v:
   );
 }
 
-function MomentRow({ c, projectId, onUpdate, onPreview, disabled }: { c: Candidate; projectId: string; onUpdate: (patch: Partial<Candidate>) => void; onPreview: () => void; disabled: boolean }) {
+function MomentRow({ c, projectId, onUpdate, onPreview, onFx, disabled }: { c: Candidate; projectId: string; onUpdate: (patch: Partial<Candidate>) => void; onPreview: () => void; onFx: () => void; disabled: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -59,6 +60,7 @@ function MomentRow({ c, projectId, onUpdate, onPreview, disabled }: { c: Candida
         <td className="num small">{Math.round(c.confidence * 100)}%</td>
         <td>
           <div className="row-actions">
+            <button className={`btn small ${c.fx ? 'fx-on' : ''}`} onClick={onFx} title={c.fx ? `Effects: ${c.fx.source === 'manual' ? 'edited by you' : 'planned by AI'}` : 'Add effects (hook, replay, zooms, sounds…)'}>✨</button>
             <button className={`btn small ${c.status === 'approved' ? 'ok' : ''}`} disabled={disabled} onClick={() => onUpdate({ status: c.status === 'approved' ? 'pending' : 'approved' })} title="Always include">✓</button>
             <button className={`btn small ${c.status === 'rejected' ? 'danger' : ''}`} disabled={disabled} onClick={() => onUpdate({ status: c.status === 'rejected' ? 'pending' : 'rejected' })} title="Never include">✕</button>
           </div>
@@ -94,6 +96,7 @@ export function Moments({ project, version, onChanged, busy }: { project: Projec
   const [filter, setFilter] = useState<Filter>('all');
   const [sort, setSort] = useState<'time' | 'score'>('time');
   const [preview, setPreview] = useState<Candidate | null>(null);
+  const [fxFor, setFxFor] = useState<Candidate | null>(null);
   const [adding, setAdding] = useState(false);
   const [newStart, setNewStart] = useState('');
   const [newEnd, setNewEnd] = useState('');
@@ -187,7 +190,7 @@ export function Moments({ project, version, onChanged, busy }: { project: Projec
           </thead>
           <tbody>
             {shown.map((c) => (
-              <MomentRow key={c.id} c={c} projectId={project.id} disabled={busy} onUpdate={(patch) => void update(c, patch)} onPreview={() => setPreview(c)} />
+              <MomentRow key={c.id} c={c} projectId={project.id} disabled={busy} onUpdate={(patch) => void update(c, patch)} onPreview={() => setPreview(c)} onFx={() => setFxFor(c)} />
             ))}
           </tbody>
         </table>
@@ -199,6 +202,18 @@ export function Moments({ project, version, onChanged, busy }: { project: Projec
           <p className="small muted">Low-resolution source preview (rendered on demand; first load may take a few seconds).</p>
           <p>{preview.description}</p>
         </Modal>
+      )}
+      {fxFor && (
+        <FxEditor
+          project={project}
+          candidate={fxFor}
+          clipId={project.clips.find((x) => x.candidateId === fxFor.id && x.status === 'completed')?.id}
+          onClose={() => setFxFor(null)}
+          onSaved={() => {
+            load();
+            onChanged();
+          }}
+        />
       )}
     </section>
   );

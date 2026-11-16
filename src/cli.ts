@@ -106,6 +106,14 @@ async function doctor(svc: Services): Promise<boolean> {
   }
   const whisper = info.whisper as { ok: boolean; reason?: string };
   console.log(`${whisper.ok ? 'OK  ' : 'INFO'} Transcription  ${whisper.ok ? 'whisper.cpp available' : `optional, disabled (${whisper.reason})`}`);
+  const t = info.tools as { encoders: Record<string, boolean>; ytdlp: string | null; gifski: boolean; demucs: boolean; sfxDir: string };
+  const gpu = Object.entries(t.encoders).filter(([k, v]) => v && k !== 'libx264').map(([k]) => k);
+  const gpuName: Record<string, string> = { h264_nvenc: 'NVIDIA NVENC', h264_videotoolbox: 'Apple VideoToolbox', h264_qsv: 'Intel Quick Sync', h264_amf: 'AMD AMF' };
+  console.log(`${gpu.length ? 'OK  ' : 'INFO'} GPU encoding   ${gpu.length ? gpu.map((g) => gpuName[g] ?? g).join(', ') : 'none found — rendering uses the CPU (x264)'}`);
+  console.log(`${t.ytdlp ? 'OK  ' : 'INFO'} Import links   ${t.ytdlp ? `yt-dlp ${t.ytdlp}` : 'optional: install yt-dlp to import from YouTube/Twitch links'}`);
+  console.log(`${t.gifski ? 'OK  ' : 'INFO'} GIF export     ${t.gifski ? 'gifski (high quality)' : 'FFmpeg palette GIFs (install gifski for better quality)'}`);
+  console.log(`${t.demucs ? 'OK  ' : 'INFO'} Music removal  ${t.demucs ? 'Demucs available' : 'optional: pip install demucs (removes in-game radio music)'}`);
+  console.log(`OK   Sound FX       built-in sounds + your files in ${t.sfxDir}`);
   const free = info.freeDiskGb as number;
   console.log(`${free > svc.cfg.storage.minFreeDiskGb ? 'OK  ' : 'WARN'} Disk           ${free} GB free at ${info.projectsDir}`);
   return Boolean(info.ffmpeg && info.ffprobe && claudeOk);

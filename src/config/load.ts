@@ -60,6 +60,7 @@ export function loadConfig(opts: { root?: string; overrides?: unknown } = {}): A
   cfg.storage.projectsDir = path.resolve(root, cfg.storage.projectsDir);
   cfg.storage.exportsDir = path.resolve(root, cfg.storage.exportsDir);
   cfg.storage.dataDir = path.resolve(root, cfg.storage.dataDir);
+  cfg.fx.sfxDir = path.resolve(root, cfg.fx.sfxDir);
   return cfg;
 }
 
@@ -73,5 +74,6 @@ export function effectiveConfig(base: AppConfig, settings: ProjectSettings | und
   c.preferredMaxSeconds = Math.max(Math.min(c.preferredMaxSeconds, c.maxDurationSeconds), c.preferredMinSeconds);
   const cfg = parseConfig(merged);
   cfg.storage = base.storage;
+  cfg.fx.sfxDir = base.fx.sfxDir;
   return cfg;
 }

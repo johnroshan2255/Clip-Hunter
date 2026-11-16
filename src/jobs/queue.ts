@@ -5,7 +5,7 @@ import { readJsonOr, writeJsonAtomic } from '../util/fsx.js';
 import { errorToJSON, isCancelled, AppError, NotFoundError, ValidationError } from '../util/errors.js';
 import type { Logger } from '../util/logger.js';
 
-export type JobType = 'analyze' | 'render';
+export type JobType = 'analyze' | 'render' | 'montage' | 'download';
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface Job {

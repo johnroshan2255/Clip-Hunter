@@ -7,3 +7,7 @@ exports/
 .DS_Store
 cliphunter.config.local.json
 tests/fixtures/media/
+
+# your own sound effects (may be copyrighted)
+sfx/*
+!sfx/README.md

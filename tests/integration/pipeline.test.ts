@@ -69,9 +69,21 @@ describe('full pipeline (mock Claude CLI, real FFmpeg)', () => {
       expect(md.video.height).toBe(1920);
       expect(md.video.codec).toBe('h264');
       expect(md.audio[0]?.codec).toBe('aac');
-      expect(md.durationSeconds).toBeCloseTo(c.end - c.start, 0);
+      // The AI effects plan inserts a 2.5 s replay at 0.5x (+5 s).
+      expect(c.outputSeconds).toBeCloseTo(c.end - c.start + 5, 1);
+      expect(md.durationSeconds).toBeCloseTo(c.outputSeconds!, 0);
+      expect(c.fxSummary).toEqual(expect.arrayContaining(['hook title', 'replay 2.5s @0.5x', 'sfx: boom']));
+      expect(c.highlight!.end).toBeGreaterThan(c.highlight!.start);
       expect(fs.existsSync(paths.abs(c.thumbnail!))).toBe(true);
     }
+    // Plans are saved on the moments so they can be edited; the invalid t=999 event was dropped.
+    const cands: Candidate[] = JSON.parse(fs.readFileSync(paths.candidatesFile, 'utf8'));
+    for (const c of cands.filter((x) => x.selected)) {
+      expect(c.fx?.source).toBe('auto');
+      expect(c.fx?.hook?.default).toBe('Mock hook: watch this');
+      expect(c.fx?.events.every((e) => e.t <= c.end)).toBe(true);
+    }
+    expect(proj.facecam?.rect).toBeNull();
     expect(fs.existsSync(paths.renderingLog)).toBe(true);
   });
 

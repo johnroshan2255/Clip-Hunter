@@ -108,6 +108,14 @@ const audioSchema = z
     /** Duck background music under game audio. */
     ducking: z.boolean().default(true),
     bitrateKbps: z.number().int().min(64).max(512).default(192),
+    /** Reduce mic/fan/room noise (FFmpeg afftdn). Also affects game sound, so off by default. */
+    denoise: z.enum(['off', 'light', 'strong']).default('off'),
+    /**
+     * Remove music (e.g. in-game radio that triggers copyright claims) with Demucs AI source separation:
+     * "reduce" keeps voices and turns everything else down; "voices" keeps only voices. Needs `demucs` installed.
+     */
+    musicRemoval: z.enum(['off', 'reduce', 'voices']).default('off'),
+    demucsExecutable: z.string().default('demucs'),
   })
   .default({});
 
@@ -150,6 +158,10 @@ const textSchema = z
      * "stacked" = one reel showing all chosen languages (first on top).
      */
     subtitleMode: z.enum(['separate', 'stacked']).default('separate'),
+    /** "karaoke" = 1-4 words at a time with the spoken word highlighted (reels style); "classic" = full lines. */
+    captionStyle: z.enum(['karaoke', 'classic']).default('karaoke'),
+    /** Colour of the highlighted word in karaoke captions. */
+    highlightColor: z.string().default('#FFE34D'),
     /** Script for Hindi subtitles: Devanagari (हिंदी) or romanised Hinglish. */
     hindiScript: z.enum(['devanagari', 'roman']).default('devanagari'),
     /** Also write .srt caption files next to each clip (for uploading as platform captions). */
@@ -188,9 +200,60 @@ const renderSchema = z
     smartCropMinConfidence: z.number().min(0).max(1).default(0.55),
     /** Max horizontal pan speed for smart crop (fraction of source width per second). */
     smartCropMaxPanPerSecond: z.number().min(0.01).max(2).default(0.25),
+    /** Video encoder: "auto" uses the GPU when available (NVIDIA NVENC, Apple VideoToolbox, Intel QSV, AMD AMF), else x264 on the CPU. */
+    videoEncoder: z.enum(['auto', 'libx264', 'h264_nvenc', 'h264_videotoolbox', 'h264_qsv', 'h264_amf']).default('auto'),
     /** Duration tolerance for validation, seconds. */
     durationToleranceSeconds: z.number().min(0.05).max(2).default(0.25),
     maxRetries: z.number().int().min(0).max(5).default(1),
+  })
+  .default({});
+
+const fxSchema = z
+  .object({
+    /** Master switch for fun effects. */
+    enabled: z.boolean().default(true),
+    /** Let Claude plan effects for each clip automatically (manual edits are never overwritten). */
+    auto: z.boolean().default(true),
+    /** How much the AI adds: subtle ≈ 2-3 effects per clip, normal ≈ 4-6, crazy ≈ 8-12. */
+    intensity: z.enum(['subtle', 'normal', 'crazy']).default('normal'),
+    /** Short hook title in the first seconds ("He did NOT see that coming"). */
+    hookTitle: z.boolean().default(true),
+    hookSeconds: z.number().min(1).max(8).default(2.8),
+    /** Slow-motion instant replay of the best moment. */
+    replay: z.boolean().default(true),
+    replaySpeed: z.number().min(0.2).max(0.9).default(0.5),
+    replayMaxSeconds: z.number().min(1).max(8).default(3),
+    /** Fill in frames for smooth slow motion: "blend" (fast) or "motion" (motion interpolation, slow but smooth). */
+    replaySmoothing: z.enum(['none', 'blend', 'motion']).default('blend'),
+    zoom: z.boolean().default(true),
+    shake: z.boolean().default(true),
+    flash: z.boolean().default(true),
+    glitch: z.boolean().default(true),
+    /** Sound effects from the built-in library plus your own files in sfxDir. */
+    sfx: z.boolean().default(true),
+    sfxVolume: z.number().min(0).max(2).default(0.8),
+    /** Folder with your own sound effects (mp3/wav/ogg/m4a); the file name is the effect name. */
+    sfxDir: z.string().default('sfx'),
+    /** Voice effects (chipmunk, deep, echo, robot) on chosen moments. */
+    voice: z.boolean().default(true),
+    /** Facecam layout (webcam on top, gameplay below): auto = when a webcam overlay is detected. */
+    facecam: z.enum(['auto', 'on', 'off']).default('auto'),
+    /** Height of the webcam panel as a fraction of the reel height. */
+    facecamHeight: z.number().min(0.2).max(0.5).default(0.34),
+  })
+  .default({});
+
+const downloadSchema = z
+  .object({
+    /** yt-dlp executable used for "import from link". */
+    ytdlpExecutable: z.string().default('yt-dlp'),
+    /** Max video height to download. */
+    maxHeight: z.number().int().min(360).max(2160).default(1080),
+    /**
+     * Browser to read cookies from (e.g. "chrome", "edge", "firefox") when a site requires sign-in.
+     * Empty = never read browser cookies.
+     */
+    cookiesFromBrowser: z.string().regex(/^[a-z]*$/).default(''),
   })
   .default({});
 
@@ -239,6 +302,8 @@ export const configSchema = z
     audio: audioSchema,
     text: textSchema,
     render: renderSchema,
+    fx: fxSchema,
+    download: downloadSchema,
     storage: storageSchema,
     server: serverSchema,
     logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
@@ -265,6 +330,7 @@ export type TextConfig = AppConfig['text'];
 export type TextStyle = TextConfig['style'];
 export type AnalysisConfig = AppConfig['analysis'];
 export type ClaudeConfig = AppConfig['claude'];
+export type FxConfig = AppConfig['fx'];
 
 /** Per-project overrides that the UI may set. */
 export const projectSettingsSchema = z
@@ -284,6 +350,7 @@ export const projectSettingsSchema = z
         cropPositionX: z.number().min(0).max(1),
         fps: z.number().min(10).max(120),
         crf: z.number().int().min(0).max(51),
+        videoEncoder: z.enum(['auto', 'libx264', 'h264_nvenc', 'h264_videotoolbox', 'h264_qsv', 'h264_amf']),
       })
       .partial(),
     audio: z
@@ -293,6 +360,8 @@ export const projectSettingsSchema = z
         backgroundMusicPath: z.string(),
         backgroundMusicVolume: z.number().min(0).max(2),
         ducking: z.boolean(),
+        denoise: z.enum(['off', 'light', 'strong']),
+        musicRemoval: z.enum(['off', 'reduce', 'voices']),
       })
       .partial(),
     text: z
@@ -305,6 +374,26 @@ export const projectSettingsSchema = z
         subtitleLanguages: z.array(z.string().regex(/^(original|[a-z]{2,3})$/)).min(1).max(2),
         hindiScript: z.enum(['devanagari', 'roman']),
         subtitleMode: z.enum(['separate', 'stacked']),
+        captionStyle: z.enum(['karaoke', 'classic']),
+      })
+      .partial(),
+    fx: z
+      .object({
+        enabled: z.boolean(),
+        auto: z.boolean(),
+        intensity: z.enum(['subtle', 'normal', 'crazy']),
+        hookTitle: z.boolean(),
+        replay: z.boolean(),
+        replaySpeed: z.number().min(0.2).max(0.9),
+        replaySmoothing: z.enum(['none', 'blend', 'motion']),
+        zoom: z.boolean(),
+        shake: z.boolean(),
+        flash: z.boolean(),
+        glitch: z.boolean(),
+        sfx: z.boolean(),
+        sfxVolume: z.number().min(0).max(2),
+        voice: z.boolean(),
+        facecam: z.enum(['auto', 'on', 'off']),
       })
       .partial(),
   })

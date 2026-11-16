@@ -11,9 +11,33 @@ Local, AI-assisted clipping for long gameplay recordings. ClipHunter analyses 1�
 | Tool | Notes |
 |---|---|
 | Node.js ≥ 20.10 | |
-| FFmpeg + FFprobe | Needs `libx264`. `drawtext`/`libass` are **not** required; text is rendered as PNG overlays. |
+| FFmpeg + FFprobe | Needs `libx264`. `drawtext`/`libass` are **not** required; text is rendered as PNG overlays. GPU encoders (NVENC, VideoToolbox, Quick Sync, AMF) are used automatically when present. |
 | Claude Code CLI | Installed and logged in (`claude` in a terminal, then `/login`). |
 | whisper.cpp (optional) | Only needed for subtitles. Set `text.whisperExecutable` and `text.whisperModelPath`. |
+| yt-dlp (optional) | Import a recording from a link (your own YouTube/Twitch/Kick VODs). |
+| gifski (optional) | Higher-quality GIF export (FFmpeg is used otherwise). |
+| Demucs (optional) | Removes in-game music (e.g. GTA radio) that causes copyright claims. `pip install demucs`. |
+
+Runs on **macOS, Windows and Linux**. `npm run doctor` shows what is available.
+
+## Windows laptop / NVIDIA GPU setup
+
+> Setting up on a new computer? See **[SETUP.md](SETUP.md)** for the full checklist.
+
+From the ClipHunter folder, in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1 -OpenFirewall
+# add -WithMusicRemoval to also install Demucs + PyTorch (CUDA), ~3 GB
+```
+
+The script installs Node.js, Git, FFmpeg (full build with NVENC) and yt-dlp with `winget`; installs Claude Code; downloads whisper.cpp (the CUDA build on NVIDIA) and the speech models; builds the app; and writes `cliphunter.config.local.json` with the tool paths. Then:
+
+1. Run `claude` once and sign in.
+2. `npm run cli -- set-password` (for friends on your Wi-Fi).
+3. `npm start`. The share link for your Wi-Fi is printed at start-up.
+
+On an RTX laptop, clips are encoded with **NVENC** (several times faster than the CPU), video decoding uses the GPU (`-hwaccel auto`), and whisper.cpp runs on CUDA. If the GPU encoder fails, that clip is re-encoded on the CPU automatically. npm-installed CLIs (`claude.cmd`) are launched through Node directly, so no shell is ever used. Keep the laptop plugged in and stop it from sleeping during long jobs.
 
 ## Quick start
 
@@ -119,6 +143,30 @@ The original game audio is kept by default, with two-pass `loudnorm` to −14 LU
 
 Optional intro and ending text, plus an optional AI title caption (`text.aiCaptions`, off by default). Style is configurable: font family, size, colour, outline and shadow. Fonts that can render Devanagari are picked automatically for Hindi.
 
+## Fun effects (automatic + manual)
+
+Every clip can get reel-style edits. With **AI picks the effects** on (default), Claude plans each clip during rendering. It works from the moment's description, the transcript, the loud audio onsets and the list of available sounds, and puts each effect on the right frame:
+
+| Effect | What it does |
+|---|---|
+| Hook title | Short title in a yellow box that slides in for the first ~3 s. One per reel language (a Hindi hook on the Hindi reel). |
+| Instant replay | The payoff replayed in slow motion (0.5× default) right after it happens, zoomed in, with a REPLAY badge and a whoosh. 60 fps sources use real frames; otherwise frames are blended (or motion-interpolated). |
+| Zoom punch / shake / flash / glitch | Quick zoom-ins, camera shake, white impact flash, RGB-split glitch. |
+| Sound effects | Built-in original sounds (boom, hit, whoosh, riser, ding, glitch, bass-drop, airhorn, pop), synthesised locally, so there are no copyright issues. Add your own in **Settings → Sound effects library** or the `sfx/` folder. |
+| Voice effects | chipmunk, deep, echo or robot on a funny line. |
+| Word-by-word captions | 1–4 words at a time with the spoken word highlighted (`text.captionStyle: karaoke`). |
+| Facecam layout | If the recording has a webcam overlay (detected by Claude once per project, or placed by hand), the reel shows the webcam on top and the gameplay below. The gameplay crop moves so the webcam isn't shown twice. |
+
+**Manual editing:** the **✨ Effects** button (Clips tab, or ✨ in the Moments tab) opens an editor. It has a preview, a timeline of the effects, buttons to add an effect at the current video time, and fields for the hook, the replay range, sounds, voices, durations and strengths. **Plan with AI** re-plans one clip, and **Reset to automatic** discards your edits. Edited plans are never overwritten by the AI. Automatic plans are re-made when you change effect settings (intensity, enabled effects, languages).
+
+**Settings → Fun effects:** a master switch, AI on/off, intensity (subtle / normal / crazy), each effect type, replay speed and smoothness, sound volume, and facecam (auto / always / off).
+
+Other extras:
+- **Montage** (Clips tab → 🎬 Make montage): joins chosen clips with transitions. Vertical montages reuse the finished reels (effects and subtitles included). Horizontal 16:9 montages are cut from the original gameplay for YouTube.
+- **GIF** button: a GIF of each reel's best seconds (the replay, or around the peak), 480 px wide, ≤ 8 s.
+- **Import from a link** (dashboard): downloads a video with yt-dlp, then analyses it automatically. Only public http(s) links are accepted; browser cookies are never read unless you set `download.cookiesFromBrowser`.
+- **Mic noise removal** (`audio.denoise`) and **in-game music removal** (`audio.musicRemoval`, Demucs). "reduce" keeps voices and turns everything else down; "voices" keeps only the voices.
+
 ## Subtitles (English, Hindi and more)
 
 Speech is transcribed **locally** with whisper.cpp; nothing is uploaded. Lines that aren't already in a target language are translated with your Claude CLI, keeping whisper's timing. Transcription and translation run once per clip.
@@ -222,6 +270,7 @@ npm test                  # unit + integration (≈30 s)
 npm run test:unit
 npm run test:integration  # real FFmpeg; Claude is replaced by tests/fixtures/mock-claude.mjs
 node scripts/ui-smoke.mjs http://127.0.0.1:4317 <projectId> /tmp   # browser smoke test (puppeteer-core + installed Chrome)
+node scripts/ui-fx-check.mjs http://127.0.0.1:4317 <projectId> <clipId> /tmp   # effects editor, montage dialog, settings
 ```
 
 The mock CLI speaks the same stream-json protocol, which lets the tests cover corrective retries, authentication failures, process failures, concurrency limits and cancellation without using your Claude usage.

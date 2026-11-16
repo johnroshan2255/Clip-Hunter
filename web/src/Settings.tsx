@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, type ProjectDetail } from './api';
 import { toast, toastError } from './ui';
+import { FacecamEditor, FunEffectsFields, SoundLibrary } from './FxSettings';
 
 /** Per-project overrides of the global configuration. */
 export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; onSaved: () => void }) {
@@ -23,6 +24,11 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
   const [subLangs, setSubLangs] = useState<string[]>(e.text.subtitleLanguages);
   const [hindiScript, setHindiScript] = useState(e.text.hindiScript);
   const [subMode, setSubMode] = useState(e.text.subtitleMode);
+  const [captionStyle, setCaptionStyle] = useState(e.text.captionStyle);
+  const [fx, setFx] = useState(e.fx);
+  const [encoder, setEncoder] = useState(e.render.videoEncoder);
+  const [denoise, setDenoise] = useState(e.audio.denoise);
+  const [musicRemoval, setMusicRemoval] = useState(e.audio.musicRemoval);
   // Reel presets: what most people want, mapped onto languages + mode.
   const preset = subLangs.length === 2 && subLangs.includes('hi') && subLangs.includes('en') ? (subMode === 'stacked' ? 'stacked' : 'both') : subLangs.length === 1 && subLangs[0] === 'en' ? 'en' : subLangs.length === 1 && subLangs[0] === 'hi' ? 'hi' : subLangs.length === 1 && subLangs[0] === 'original' ? 'original' : 'custom';
   const applyPreset = (p: string) => {
@@ -39,9 +45,10 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
         settings: {
           analysis: { gameTitle: game },
           clips: { count, minDurationSeconds: minDur, maxDurationSeconds: maxDur, minEntertainmentScore: minScore },
-          render: { compositionMode: mode, fps },
-          audio: { normalize, volume, backgroundMusicPath: music },
-          text: { introText: intro, endingText: ending, aiCaptions: captions, subtitles: subs, spokenLanguage: spoken, subtitleLanguages: subLangs, hindiScript, subtitleMode: subMode },
+          render: { compositionMode: mode, fps, videoEncoder: encoder },
+          audio: { normalize, volume, backgroundMusicPath: music, denoise, musicRemoval },
+          text: { introText: intro, endingText: ending, aiCaptions: captions, subtitles: subs, spokenLanguage: spoken, subtitleLanguages: subLangs, hindiScript, subtitleMode: subMode, captionStyle },
+          fx: { enabled: fx.enabled, auto: fx.auto, intensity: fx.intensity, hookTitle: fx.hookTitle, replay: fx.replay, replaySpeed: fx.replaySpeed, replaySmoothing: fx.replaySmoothing, zoom: fx.zoom, shake: fx.shake, flash: fx.flash, glitch: fx.glitch, sfx: fx.sfx, sfxVolume: fx.sfxVolume, voice: fx.voice, facecam: fx.facecam },
         },
       });
       toast('Settings saved. Changes to clip count/score apply on “Re-run selection”; render settings apply to the next render.', 'ok');
@@ -75,13 +82,40 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
           </select>
         </label>
         <label><span>Frame rate</span><select value={fps} onChange={(x) => setFps(Number(x.target.value))}>{[24, 30, 60].map((f) => <option key={f} value={f}>{f} fps</option>)}</select></label>
-        <div className="small muted">Output: {e.render.width}×{e.render.height} H.264 + AAC, yuv420p, fast-start MP4.</div>
+        <label>
+          <span>Video encoder</span>
+          <select value={encoder} onChange={(x) => setEncoder(x.target.value)}>
+            <option value="auto">Auto — GPU if available (fastest)</option>
+            <option value="h264_nvenc">NVIDIA GPU (NVENC)</option>
+            <option value="h264_videotoolbox">Apple GPU (VideoToolbox)</option>
+            <option value="h264_qsv">Intel GPU (Quick Sync)</option>
+            <option value="h264_amf">AMD GPU (AMF)</option>
+            <option value="libx264">CPU (x264, best quality per MB)</option>
+          </select>
+        </label>
+        <div className="small muted">Output: {e.render.width}×{e.render.height} H.264 + AAC, yuv420p, fast-start MP4. If a GPU encoder fails, the CPU is used automatically.</div>
       </div>
       <h3>Audio</h3>
       <div className="form-grid">
         <label className="check"><input type="checkbox" checked={normalize} onChange={(x) => setNormalize(x.target.checked)} /> Normalize loudness (−14 LUFS)</label>
         <label><span>Game audio volume</span><input type="number" min={0} max={4} step={0.1} value={volume} onChange={(x) => setVolume(Number(x.target.value))} /></label>
         <label className="grow"><span>Background music file (optional — only use music you have rights to)</span><input value={music} onChange={(x) => setMusic(x.target.value)} placeholder="/path/to/royalty-free-track.mp3" /></label>
+        <label>
+          <span>Mic noise removal</span>
+          <select value={denoise} onChange={(x) => setDenoise(x.target.value as typeof denoise)}>
+            <option value="off">Off</option>
+            <option value="light">Light (fan / room hum)</option>
+            <option value="strong">Strong (noisy mic)</option>
+          </select>
+        </label>
+        <label>
+          <span>Remove in-game music (copyright)</span>
+          <select value={musicRemoval} onChange={(x) => setMusicRemoval(x.target.value as typeof musicRemoval)}>
+            <option value="off">Off</option>
+            <option value="reduce">Turn music down, keep voices (Demucs AI)</option>
+            <option value="voices">Voices only (removes music and game sounds)</option>
+          </select>
+        </label>
       </div>
       <h3>Text</h3>
       <div className="form-grid">
@@ -89,6 +123,8 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
         <label><span>Ending text</span><input value={ending} onChange={(x) => setEnding(x.target.value)} placeholder="(none)" /></label>
         <label className="check"><input type="checkbox" checked={captions} onChange={(x) => setCaptions(x.target.checked)} /> Show AI title caption</label>
       </div>
+      <h3>Fun effects</h3>
+      <FunEffectsFields fx={fx} onChange={setFx} />
       <h3>Subtitles</h3>
       <div className="form-grid">
         <label className="check"><input type="checkbox" checked={subs} onChange={(x) => setSubs(x.target.checked)} /> Add subtitles when speech is detected (local whisper.cpp)</label>
@@ -125,11 +161,22 @@ export function SettingsPanel({ project, onSaved }: { project: ProjectDetail; on
             <option value="roman">Hinglish (Latin letters)</option>
           </select>
         </label>
-        <div className="small muted">Speech is transcribed on this Mac; missing languages are translated with your Claude CLI. .srt caption files are saved with each clip.</div>
+        <label>
+          <span>Caption style</span>
+          <select value={captionStyle} onChange={(x) => setCaptionStyle(x.target.value as typeof captionStyle)} disabled={!subs}>
+            <option value="karaoke">Word by word, spoken word highlighted (reels style)</option>
+            <option value="classic">Full lines</option>
+          </select>
+        </label>
+        <div className="small muted">Speech is transcribed on this computer; missing languages are translated with your Claude CLI. .srt caption files are saved with each clip.</div>
       </div>
       <div className="actions">
         <button className="btn primary" onClick={() => void save()}>Save settings</button>
       </div>
+      <h3>Facecam position</h3>
+      <FacecamEditor project={project} onSaved={onSaved} />
+      <h3>Sound effects library</h3>
+      <SoundLibrary />
     </section>
   );
 }

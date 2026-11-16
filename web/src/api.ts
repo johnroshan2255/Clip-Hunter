@@ -1,10 +1,36 @@
-import type { Candidate, ClipRecord, Project, StageName } from '../../src/types';
+import type { Candidate, ClipFx, ClipRecord, FacecamRect, FxEvent, FxEventType, MontageRecord, Project, StageName, VoiceEffect } from '../../src/types';
 
-export type { Candidate, ClipRecord, Project, StageName };
+export type { Candidate, ClipFx, ClipRecord, FacecamRect, FxEvent, FxEventType, MontageRecord, Project, StageName, VoiceEffect };
+
+export interface FxSettings {
+  enabled: boolean;
+  auto: boolean;
+  intensity: 'subtle' | 'normal' | 'crazy';
+  hookTitle: boolean;
+  hookSeconds: number;
+  replay: boolean;
+  replaySpeed: number;
+  replayMaxSeconds: number;
+  replaySmoothing: 'none' | 'blend' | 'motion';
+  zoom: boolean;
+  shake: boolean;
+  flash: boolean;
+  glitch: boolean;
+  sfx: boolean;
+  sfxVolume: number;
+  voice: boolean;
+  facecam: 'auto' | 'on' | 'off';
+}
+
+export interface SoundInfo {
+  name: string;
+  description: string;
+  builtin: boolean;
+}
 
 export interface Job {
   id: string;
-  type: 'analyze' | 'render';
+  type: 'analyze' | 'render' | 'montage' | 'download';
   projectId: string;
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   progress: number;
@@ -23,10 +49,11 @@ export interface ProjectDetail extends Project {
   jobs: Job[];
   effectiveConfig: {
     clips: { count: number; minDurationSeconds: number; maxDurationSeconds: number; minEntertainmentScore: number };
-    render: { compositionMode: 'blur' | 'crop' | 'smart'; width: number; height: number; fps: number };
+    render: { compositionMode: 'blur' | 'crop' | 'smart'; width: number; height: number; fps: number; videoEncoder: string };
     analysis: { gameTitle: string };
-    text: { introText: string; endingText: string; aiCaptions: boolean; subtitles: boolean; spokenLanguage: string; subtitleLanguages: string[]; hindiScript: 'devanagari' | 'roman'; subtitleMode: 'separate' | 'stacked' };
-    audio: { normalize: boolean; volume: number; backgroundMusicPath: string };
+    text: { introText: string; endingText: string; aiCaptions: boolean; subtitles: boolean; spokenLanguage: string; subtitleLanguages: string[]; hindiScript: 'devanagari' | 'roman'; subtitleMode: 'separate' | 'stacked'; captionStyle: 'karaoke' | 'classic' };
+    audio: { normalize: boolean; volume: number; backgroundMusicPath: string; denoise: 'off' | 'light' | 'strong'; musicRemoval: 'off' | 'reduce' | 'voices' };
+    fx: FxSettings;
   };
 }
 
@@ -50,6 +77,7 @@ export interface SystemInfo {
   ffprobe: string | null;
   claude: ClaudeStatus;
   whisper: { ok: boolean; reason?: string; multilingual?: boolean };
+  tools?: { encoders: Record<string, boolean>; ytdlp: string | null; gifski: boolean; demucs: boolean; sfxDir: string };
   freeDiskGb: number;
   cpus: number;
   config: Record<string, unknown>;
@@ -93,7 +121,24 @@ export const api = {
   projects: () => req<ProjectListItem[]>('GET', '/api/projects'),
   project: (id: string) => req<ProjectDetail>('GET', `/api/projects/${id}`),
   createProject: (body: { path: string; name?: string; settings?: unknown }) => req<Project>('POST', '/api/projects', body),
-  updateProject: (id: string, body: { name?: string; settings?: unknown }) => req<Project>('PATCH', `/api/projects/${id}`, body),
+  updateProject: (id: string, body: { name?: string; settings?: unknown; facecam?: FacecamRect | null }) => req<Project>('PATCH', `/api/projects/${id}`, body),
+  importUrl: (body: { url: string; name?: string; settings?: unknown }) => req<Project>('POST', '/api/projects/from-url', body),
+  saveFx: (id: string, cid: string, fx: Pick<ClipFx, 'hook' | 'replay' | 'events'>) => req<Candidate>('PUT', `/api/projects/${id}/candidates/${cid}/fx`, fx),
+  resetFx: (id: string, cid: string) => req<Candidate>('DELETE', `/api/projects/${id}/candidates/${cid}/fx`),
+  planFx: (id: string, cid: string) => req<ClipFx>('POST', `/api/projects/${id}/candidates/${cid}/fx/auto`),
+  detectFacecam: (id: string) => req<Project>('POST', `/api/projects/${id}/facecam/detect`),
+  sounds: () => req<SoundInfo[]>('GET', '/api/fx/sounds'),
+  deleteSound: (name: string) => req<{ ok: boolean }>('DELETE', `/api/fx/sounds/${encodeURIComponent(name)}`),
+  uploadSound: async (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/fx/sounds', { method: 'POST', body: fd });
+    const data = (await res.json()) as { name?: string; error?: { message?: string; code?: string } };
+    if (!res.ok) throw new ApiError(data.error?.message ?? 'Upload failed', data.error?.code ?? 'UPLOAD', res.status);
+    return data as { name: string };
+  },
+  createMontage: (id: string, body: { clipIds?: string[]; orientation: 'vertical' | 'horizontal'; lang?: string | null; transition: string }) => req<MontageRecord>('POST', `/api/projects/${id}/montages`, body),
+  deleteMontage: (id: string, mid: string) => req<{ ok: boolean }>('DELETE', `/api/projects/${id}/montages/${mid}`),
   deleteProject: (id: string) => req<{ ok: boolean }>('DELETE', `/api/projects/${id}`),
   analyze: (id: string, fromStage?: StageName) => req<Job>('POST', `/api/projects/${id}/analyze`, fromStage ? { fromStage } : {}),
   render: (id: string, body: { clipIds?: string[]; force?: boolean } = {}) => req<Job>('POST', `/api/projects/${id}/render`, body),
@@ -135,6 +180,10 @@ export const urls = {
   frame: (id: string, t: number) => `/api/projects/${id}/frame?t=${t.toFixed(1)}`,
   preview: (id: string, cid: string, start: number, end: number) => `/api/projects/${id}/candidates/${cid}/preview?s=${start}&e=${end}`,
   exportZip: (id: string) => `/api/projects/${id}/export.zip`,
+  clipGif: (id: string, clipId: string, lang?: string | null) => `/api/projects/${id}/clips/${clipId}/gif${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`,
+  sound: (name: string) => `/api/fx/sounds/${encodeURIComponent(name)}`,
+  montageVideo: (id: string, mid: string) => `/api/projects/${id}/montages/${mid}/video`,
+  montageDownload: (id: string, mid: string) => `/api/projects/${id}/montages/${mid}/download`,
 };
 
 /** Subscribe to server-sent events; reconnects automatically. */

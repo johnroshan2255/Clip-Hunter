@@ -7,6 +7,16 @@ import { ProcessError, isCancelled } from '../util/errors.js';
 import type { Logger } from '../util/logger.js';
 import type { AnalysisFrame, SceneChange } from '../types.js';
 
+/**
+ * Hardware decode flags: VideoToolbox on macOS; elsewhere let FFmpeg pick
+ * (CUDA/NVDEC on NVIDIA, D3D11VA/DXVA2 on Windows, VAAPI on Linux). Decoded
+ * frames are copied back to system memory, so the rest of the graph is unchanged.
+ * Every caller falls back to software decoding if this fails.
+ */
+export function hwaccelArgs(platform: NodeJS.Platform = process.platform): string[] {
+  return platform === 'darwin' ? ['-hwaccel', 'videotoolbox'] : ['-hwaccel', 'auto'];
+}
+
 export interface ChunkPlan {
   index: number;
   start: number;
@@ -92,7 +102,7 @@ async function extractChunk(o: ExtractOptions, chunk: ChunkPlan, hw: boolean, on
     `[a]fps=${fps}:round=near[fa];` +
     `[b]fps=10,scale=160:-2,scdet=threshold=${o.sceneThreshold},metadata=print:file=scenes.txt[sc]`;
   const args = [
-    ...(hw ? ['-hwaccel', 'videotoolbox'] : []),
+    ...(hw ? hwaccelArgs() : []),
     '-ss', fmtSec(chunk.start),
     // -t before -i limits the *input*, so every output (frames + scene branch) stops at the chunk end.
     '-t', fmtSec(chunk.end - chunk.start),
@@ -145,7 +155,7 @@ export async function extractAnalysisFrames(o: ExtractOptions): Promise<{ frames
   const chunks = planChunks(o.duration, o.chunkSeconds, o.interval);
   const progress = new Array<number>(chunks.length).fill(0);
   const report = () => o.onProgress?.(Math.min(1, progress.reduce((a, b) => a + b, 0) / o.duration));
-  let hw = o.hardwareDecode && process.platform === 'darwin';
+  let hw = o.hardwareDecode;
 
   const results = await mapLimit(chunks, o.concurrency, async (chunk) => {
     const onSeconds = (s: number) => {
@@ -194,7 +204,7 @@ export async function extractWindowFrames(o: {
     runFfmpeg(
       o.tools,
       [
-        ...(hw ? ['-hwaccel', 'videotoolbox'] : []),
+        ...(hw ? hwaccelArgs() : []),
         '-ss', fmtSec(o.start),
         '-t', fmtSec(o.end - o.start),
         '-i', o.source,
@@ -207,7 +217,7 @@ export async function extractWindowFrames(o: {
       { signal: o.signal, timeoutMs: 10 * 60_000, label: 'ffmpeg detail frames' },
     );
   try {
-    await run(o.hardwareDecode && process.platform === 'darwin');
+    await run(o.hardwareDecode);
   } catch (err) {
     if (isCancelled(err) || !o.hardwareDecode) throw err;
     await run(false);
